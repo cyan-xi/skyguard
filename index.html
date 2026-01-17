@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>SkyGuard ATC Console</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Share+Tech+Mono&display=swap">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="top-bar">
+<div class="top-bar-left">
+<div class="top-title">SkyGuard AI</div>
+<div class="top-subtitle">Automated Air Traffic Control</div>
+</div>
+<div class="top-bar-right">
+<div class="top-names">Chelsea Yan · Jeffrey Moon · Lucas Yuan · Milena Martan</div>
+<div class="top-affiliation">UPenn</div>
+</div>
+</div>
+<div id="app">
+<div class="column transcript-column">
+<div class="panel-header">Transcript – Radio Communications</div>
+<div id="transcript-list" class="panel-content transcript-list"></div>
+</div>
+<div class="column map-column">
+<div class="panel-header">Traffic Scope – Beaver County Airport</div>
+<div id="map" class="map-scope">
+<img id="airport-image" class="map-image" src="beaver_airport.png" alt="Beaver County Airport">
+<div class="map-dark-overlay"></div>
+<div class="crt-overlay"></div>
+<div id="map-overlay" class="map-overlay"></div>
+</div>
+</div>
+<div class="column right-column">
+<div class="panel suggested-panel">
+<div class="panel-header">SkyGuard Suggested Message</div>
+<div id="suggested-meta" class="suggested-meta"></div>
+<div id="suggested-message-text" class="suggested-message-text"></div>
+<div class="suggested-actions">
+<button id="broadcast-btn" class="btn primary">Broadcast</button>
+<button id="reject-btn" class="btn secondary">Reject</button>
+</div>
+</div>
+<div class="panel anomalies-panel">
+<div class="panel-header">Anomalies – Traffic Dangers</div>
+<div id="anomalies-list" class="panel-content anomalies-list"></div>
+</div>
+</div>
+</div>
+<script src="app.js"></script>
+</body>
+</html>
