@@ -8,7 +8,6 @@ interface TranscriptPanelProps {
 export function TranscriptPanel({ messages }: TranscriptPanelProps) {
   return (
     <div className="transcript-panel">
-      <div className="panel-header">Transcript</div>
       <div className="transcript-list">
         {messages.length === 0 && (
           <div className="transcript-empty">Awaiting traffic...</div>
@@ -40,4 +39,3 @@ export function TranscriptPanel({ messages }: TranscriptPanelProps) {
     </div>
   );
 }
-

@@ -91,10 +91,3 @@
   display: flex;
   overflow: hidden;
 }
-
-.right-column {
-  display: flex;
-  flex-direction: column;
-  flex: 1;
-  border-left: 1px solid #1b2b3f;
-}

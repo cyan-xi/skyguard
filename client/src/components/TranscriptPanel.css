@@ -8,16 +8,6 @@
   min-width: 260px;
 }
 
-.panel-header {
-  font-family: "Roboto Mono", system-ui, -apple-system, BlinkMacSystemFont,
-    sans-serif;
-  font-size: 0.8rem;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: #6fb3ff;
-  margin-bottom: 0.5rem;
-}
-
 .transcript-list {
   flex: 1;
   overflow-y: auto;
@@ -78,4 +68,3 @@
   color: #dde9ff;
   line-height: 1.3;
 }
-

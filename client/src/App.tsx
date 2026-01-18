@@ -16,6 +16,10 @@ import { AnomaliesPanel } from "./components/AnomaliesPanel";
 
 const SIM_WS_URL = "ws://localhost:4000/simulations/live";
 
+function pad2(value: number): string {
+  return value.toString().padStart(2, "0");
+}
+
 function App() {
   const { tick, connectionStatus, error } = useSimulationStream({
     url: SIM_WS_URL
@@ -44,12 +48,32 @@ function App() {
     }
   }, [connectionStatus, error]);
 
-  const statusClass = useMemo(() => {
-    if (error || connectionStatus === "error") return "status-badge-error";
-    if (connectionStatus === "closed") return "status-badge-closed";
-    if (connectionStatus === "open") return "status-badge-live";
-    return "status-badge-connecting";
-  }, [connectionStatus, error]);
+  const [now, setNow] = useState(() => new Date());
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setNow(new Date());
+    }, 1000);
+    return () => {
+      clearInterval(timer);
+    };
+  }, []);
+
+  const utcTime = useMemo(() => {
+    const d = now;
+    const hours = pad2(d.getUTCHours());
+    const minutes = pad2(d.getUTCMinutes());
+    const seconds = pad2(d.getUTCSeconds());
+    return `${hours}:${minutes}:${seconds}Z`;
+  }, [now]);
+
+  const utcDate = useMemo(() => {
+    const d = now;
+    const year = d.getUTCFullYear();
+    const month = pad2(d.getUTCMonth() + 1);
+    const day = pad2(d.getUTCDate());
+    return `${year}-${month}-${day}`;
+  }, [now]);
 
   const handleBroadcast = useCallback(async () => {
     if (!suggestedMessage) return;
@@ -91,38 +115,74 @@ function App() {
   }, [tick, decisionState]);
 
   return (
-    <div className="app-root">
-      <header className="app-header">
-        <div className="app-title">
-          <span className="app-title-main">ATC MCP</span>
-          <span className="app-title-sub">Automated Tower Console</span>
+    <>
+      <div className="top-bar">
+        <div className="top-bar-left">
+          <div className="top-title">SkyGuard AI</div>
+          <div className="top-subtitle">Automated Air Traffic Control</div>
         </div>
-        <div className="app-header-right">
-          <div className={`status-badge ${statusClass}`}>{statusLabel}</div>
-          <div className="simtime-display">
-            t+
-            <span className="simtime-value">
-              {tick ? tick.simTimeSec.toFixed(1) : "0.0"}
-            </span>
-            s
+        <div className="top-bar-right">
+          <div className="status-chip">{statusLabel}</div>
+          <div id="utc-time" className="utc-time">
+            {utcTime}
+          </div>
+          <div id="utc-date" className="utc-date">
+            {utcDate}
           </div>
         </div>
-      </header>
-      <main className="app-main">
-        <TranscriptPanel messages={transcript} />
-        <SkyMap2D aircraft={aircraft} anomalies={anomalies} />
-        <div className="right-column">
-          <SuggestedMessagePanel
-            suggestedMessage={suggestedMessage}
-            decisionState={decisionState}
-            onBroadcast={handleBroadcast}
-            onReject={handleReject}
-            simId={(tick as SimulationTick | null)?.simId}
-          />
-          <AnomaliesPanel anomalies={anomalies} />
+        <div className="top-names-block">
+          <div className="top-names">
+            Chelsea Yan · Jeffrey Moon · Lucas Yuan · Milena Martan
+          </div>
+          <div className="top-affiliation">UPenn</div>
         </div>
-      </main>
-    </div>
+      </div>
+      <div id="app">
+        <div className="column transcript-column">
+          <div className="panel-header">Transcript – Radio Communications</div>
+          <div className="panel-content transcript-list">
+            <TranscriptPanel messages={transcript} />
+          </div>
+        </div>
+        <div className="column map-column">
+          <div className="panel-header">Traffic Scope – Beaver County Airport</div>
+          <div className="map-scope">
+            <img
+              id="airport-image"
+              className="map-image"
+              src="/beaver_airport.png"
+              alt="Beaver County Airport"
+            />
+            <div className="map-dark-overlay"></div>
+            <div className="crt-overlay"></div>
+            <div className="map-status-badge">LIVE RADAR / KBVI</div>
+            <div id="map-overlay" className="map-overlay">
+              <SkyMap2D aircraft={aircraft} anomalies={anomalies} />
+            </div>
+          </div>
+        </div>
+        <div className="column right-column">
+          <div className="panel suggested-panel">
+            <div className="panel-header">SkyGuard Suggested Message</div>
+            <div className="panel-content">
+              <SuggestedMessagePanel
+                suggestedMessage={suggestedMessage}
+                decisionState={decisionState}
+                onBroadcast={handleBroadcast}
+                onReject={handleReject}
+                simId={(tick as SimulationTick | null)?.simId}
+              />
+            </div>
+          </div>
+          <div className="panel anomalies-panel">
+            <div className="panel-header">Anomalies – Traffic Dangers</div>
+            <div className="panel-content anomalies-list">
+              <AnomaliesPanel anomalies={anomalies} />
+            </div>
+          </div>
+        </div>
+      </div>
+    </>
   );
 }
 
