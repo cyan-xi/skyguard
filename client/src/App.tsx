@@ -28,6 +28,7 @@ function App() {
   const [suggestedMessage, setSuggestedMessage] = useState<SuggestedMessage | null>(null);
   const [selectedPlaneIds, setSelectedPlaneIds] = useState<Set<string>>(new Set());
   const [brainAutoMode, setBrainAutoMode] = useState(false);
+  const [tickInterval, setTickInterval] = useState(2000); // ms per tick
 
   // Initialize
   useEffect(() => {
@@ -99,10 +100,10 @@ function App() {
         return newSuggestion;
       });
 
-    }, 2000);
+    }, tickInterval); // Use adjustable tick interval
 
     return () => clearTimeout(timer);
-  }, [planes]);
+  }, [planes, brainAutoMode, tickInterval]); // Add tickInterval dependency
 
   // Clock
   const [now, setNow] = useState(() => new Date());
@@ -218,6 +219,21 @@ function App() {
               {brainAutoMode ? '🤖 AUTO MODE' : '👤 MANUAL MODE'}
             </span>
           </label>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginLeft: '20px' }}>
+            <span style={{ fontSize: '12px', color: '#aaa' }}>Sim Speed:</span>
+            <input
+              type="range"
+              min="500"
+              max="5000"
+              step="500"
+              value={tickInterval}
+              onChange={(e) => setTickInterval(Number(e.target.value))}
+              style={{ width: '120px' }}
+            />
+            <span style={{ fontSize: '12px', color: '#4ade80' }}>
+              {(1000 / tickInterval).toFixed(1)}x
+            </span>
+          </div>
           <div className="status-chip">SYSTEM ONLINE</div>
           <div id="utc-time" className="utc-time">
             {utcTime}

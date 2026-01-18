@@ -130,6 +130,8 @@ export function createInitialPlanes(): Plane[] {
             acceleration: 0,
             flightMode: "init",
             patternLeg: "none",
+            willTouchAndGo: Math.random() < 0.5, // 50% chance touch-and-go
+            hasLanded: false,
             lastUpdated: new Date().toISOString()
         });
     }
@@ -272,6 +274,18 @@ export function updatePlanePositionsLogic(currentPlanes: Plane[]): { planes: Pla
             }
         }
         else if (flightMode === "pattern") {
+            // --- GRADUAL LANDING PREPARATION ---
+            // Planes that want to land should gradually slow down and descend
+            if (!p.willTouchAndGo) {
+                // Target landing speed and altitude
+                if (!p.targetGroundspeed || p.targetGroundspeed > 75) {
+                    p.targetGroundspeed = 75;
+                }
+                if (!p.targetAltitude || p.targetAltitude > 250) {
+                    p.targetAltitude = 250;
+                }
+            }
+
             // --- PATTERN LOGIC ---
             if (p.patternLeg === "crosswind") {
                 // Y=0.5. Right(0) to Left(-0.5). Heading 270.
@@ -310,9 +324,30 @@ export function updatePlanePositionsLogic(currentPlanes: Plane[]): { planes: Pla
                 newHeading = 0;
 
                 if (ny >= 0.5) {
-                    // Loop back to Crosswind
+                    // Loop back to Crosswind OR check for landing
                     ny = 0.5;
-                    nextLeg = "crosswind";
+
+                    // Check if on final approach and meets landing criteria
+                    const isLowEnough = altitude < 300;
+                    const isSlowEnough = groundspeed < 80;
+                    const wantsToLand = !p.willTouchAndGo;
+
+                    if (wantsToLand && isLowEnough && isSlowEnough) {
+                        // LAND - mark for removal
+                        return {
+                            ...p,
+                            x: 0,
+                            y: 0,
+                            altitude: 0,
+                            groundspeed: 0,
+                            hasLanded: true,
+                            flightMode: "pattern" as any,
+                            patternLeg: "final" as any
+                        };
+                    } else {
+                        // TOUCH-AND-GO - continue pattern
+                        nextLeg = "crosswind";
+                    }
                 }
             } else {
                 // Fallback to downwind if lost
@@ -334,7 +369,10 @@ export function updatePlanePositionsLogic(currentPlanes: Plane[]): { planes: Pla
         };
     });
 
-    return { planes: nextPlanes, messages };
+    // Remove landed planes
+    const activePlanes = nextPlanes.filter(p => !p.hasLanded);
+
+    return { planes: activePlanes, messages };
 }
 
 // Stubs

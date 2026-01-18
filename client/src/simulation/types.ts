@@ -32,6 +32,10 @@ export interface Plane {
         previousMode?: FlightMode;
     };
 
+    // Landing Logic
+    willTouchAndGo?: boolean;
+    hasLanded?: boolean;
+
     lastUpdated: string;
 }
 
