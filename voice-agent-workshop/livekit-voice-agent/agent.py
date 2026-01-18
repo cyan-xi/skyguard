@@ -9,8 +9,40 @@ from livekit.agents import AgentServer, AgentSession, Agent, room_io
 from livekit.agents.llm import function_tool
 from livekit.plugins import noise_cancellation, silero
 from livekit.plugins.turn_detector.multilingual import MultilingualModel
+from aiohttp import web
 
 logger = logging.getLogger("atc-agent")
+active_session: AgentSession = None
+http_server_started = False
+
+async def http_handler(request):
+    if request.path == "/speak" and request.method == "POST":
+        text = await request.text()
+        logger.info(f"Received speak request: {text}")
+        if active_session:
+            # Instruct the agent to speak this verbatim
+            if text and text.strip():
+                logger.info("Starting speech generation task...")
+                try:
+                    await active_session.say(text, allow_interruptions=False)
+                    logger.info("Speech generation task completed.")
+                except Exception as e:
+                    logger.error(f"Failed to speak text via session: {e}")
+            else:
+                logger.info("Received empty speak request, skipping.")
+            return web.Response(text="OK")
+        else:
+            return web.Response(text="No active session", status=503)
+    return web.Response(text="Not Found", status=404)
+
+async def start_http_server():
+    app = web.Application()
+    app.router.add_post("/speak", http_handler)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, "0.0.0.0", 8081)
+    await site.start()
+    logger.info("HTTP server started on port 8081")
 
 from dotenv import load_dotenv
 
@@ -20,17 +52,27 @@ load_dotenv(".env.local")
 class Assistant(Agent):
     def __init__(self) -> None:
         super().__init__(
-            instructions="""You are an AI assistant to air traffic controllers.
+            instructions="""You are the SkyGuard Automated Logging System.
+
+            # IDENTITY
+            - You are a SOFTWARE PROCESS, not a human.
+            - You are NOT a Pilot. You are NOT an Air Traffic Controller.
+            - You NEVER roleplay or simulate conversations.
+
+            # MISSION
+            - Your sole purpose is to listen to the *Human Controller* and log their commands.
+            - You DO NOT respond to questions unless explicitly asked to "Repeat last instruction".
             
-            Rules:
-            1. When the ATC broadcasts a message or gives an instruction, you MUST log it into the buffer using the 'log_atc_instruction' tool.
-            2. When the pilot asks to repeat instructions, use the 'get_last_atc_instruction' tool to retrieve the exact command and repeat it to them.
-            3. If you are asked to broadcast a message (via system event), just state the message verbatim.
+            # STRICT BEHAVIOR
+            - Hear command -> Call `log_atc_instruction` -> Output EMPTY STRING.
+            - Hear chitchat/questions -> Output EMPTY STRING.
+            - Hear "Repeat" -> Call `get_last_atc_instruction`.
+            - NEVER generating text starting with "Pilot..." or "Tower...".
             """,
         )
 
         self.instruction_buffer = []
-        self.webhook_url = "https://example.com/webhook/atc-logs"  # PLACEHOLDER
+        self.webhook_url = "http://127.0.0.1:4000/api/transcript/log"
 
     async def _send_to_webhook(self, data: dict):
         """Helper to send data to the webhook asynchronously without blocking."""
@@ -42,14 +84,16 @@ class Assistant(Agent):
         except Exception as e:
             logger.error(f"Failed to send to webhook: {e}")
 
+            logger.error(f"Failed to send to webhook: {e}")
+
     @function_tool
     async def log_atc_instruction(self, callsign: str, command: str, value: str, raw_message: str):
         """
         Log a structured ATC instruction.
         Args:
             callsign: The target aircraft (e.g., "United 123")
-            command: The action type (e.g., "CLIMB", "TURN LEFT", "CONTACT")
-            value: The numerical value or target (e.g., "FL350", "heading 270", "119.5")
+            command: The strictly normalized FAA Order 7110.65 action (e.g., "CLIMB AND MAINTAIN", "TURN LEFT HEADING", "CLEARED FOR TAKEOFF").
+            value: The numerical value or target (e.g., "FL350", "270", "Runway 28").
             raw_message: The complete spoken phrase verbatim.
         """
         logger.info(f"Logging ATC instruction: {raw_message}")
@@ -83,39 +127,46 @@ class Assistant(Agent):
 
 server = AgentServer()
 
+class BroadcastAgent(Agent):
+    def __init__(self):
+        super().__init__(instructions="You are a broadcast system.")
+
 @server.rtc_session()
 async def my_agent(ctx: agents.JobContext):
+    global active_session
+    global http_server_started
+    if not http_server_started:
+        asyncio.create_task(start_http_server())
+        http_server_started = True
+
+    # No STT, No VAD, No LLM -> Pure Broadcast
     session = AgentSession(
-        stt="assemblyai/universal-streaming:en",
-        llm="openai/gpt-4.1-mini",
         tts="cartesia/sonic-3:9626c31c-bec5-4cca-baa8-f8ba9e84c8bc",
-        vad=silero.VAD.load(),
-        turn_detection=MultilingualModel(),
     )
+    
+    active_session = session
 
-    @ctx.room.on("data_received")
-    def on_data_received(dp: rtc.DataPacket):
-        # Handle "broadcast" click from the operator
-        payload = dp.data.decode()
-        logger.info(f"Received broadcast request: {payload}")
-        if payload:
-            asyncio.create_task(session.generate_reply(
-                instructions=f"The operator wants you to broadcast this instruction immediately: '{payload}'"
-            ))
-
+    # Start the session with our dummy agent (required for loop)
     await session.start(
         room=ctx.room,
-        agent=Assistant(),
-        room_options=room_io.RoomOptions(
-            audio_input=room_io.AudioInputOptions(
-                noise_cancellation=lambda params: noise_cancellation.BVCTelephony() if params.participant.kind == rtc.ParticipantKind.PARTICIPANT_KIND_SIP else noise_cancellation.BVC(),
-            ),
-        ),
+        agent=BroadcastAgent()
     )
+    
+    # Announce online
+    logger.info("Broadcast Agent Online")
+    await session.say("SkyGuard Broadcast System Online", allow_interruptions=False)
 
-    await session.generate_reply(
-        instructions="State that the LiveKit Voice Agent is online."
-    )
+    # Keep the task alive effectively forever (or until disconnected)
+    # Since we are not running an 'Agent' loop, we need to wait on something.
+    # The session.run() usually handles this, but we aren't using an Agent.
+    # We can just await a future that never completes, or let the room connection hold it.
+    
+    # Actually, livekit-agents usually requires an Agent logic to 'run'. 
+    # But here we just want the HTTP server to drive it.
+    # We will simply await the HTTP server completion (which is infinite) 
+    # OR better: await ctx.wait_for_shutdown()
+    
+    await ctx.wait_for_shutdown()
 
 
 if __name__ == "__main__":

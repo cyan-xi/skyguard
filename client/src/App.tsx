@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import "./index.css"; // Ensure index.css is loaded
 import {
   createInitialPlanes,
@@ -26,10 +26,12 @@ function App() {
   const [planes, setPlanes] = useState<Plane[]>([]);
   const [transcript, setTranscript] = useState<TranscriptEntry[]>([]);
   const [anomalies, setAnomalies] = useState<Anomaly[]>([]);
+
   const [suggestedMessage, setSuggestedMessage] = useState<SuggestedMessage | null>(null);
   const [selectedPlaneIds, setSelectedPlaneIds] = useState<Set<string>>(new Set());
   const [brainAutoMode] = useState(false);
   const [tickInterval, setTickInterval] = useState(2000); // ms per tick
+  const lastBroadcastTime = useRef<number>(0);
   const [scriptedMessages, setScriptedMessages] = useState<any[]>([]);
   const [currentMessageIndex, setCurrentMessageIndex] = useState(0);
   const [isScriptedMode, setIsScriptedMode] = useState(false);
@@ -76,45 +78,63 @@ function App() {
 
       // If no suggestion, pick one
       setSuggestedMessage((prevSuggestion) => {
-        const newSuggestion = prevSuggestion ? prevSuggestion : chooseSuggestion(nextPlanes, nextAnomalies);
-
-        // AUTO MODE: Automatically broadcast if enabled
-        if (newSuggestion && brainAutoMode) {
-          // Auto-broadcast the suggestion
-          const entry: TranscriptEntry = {
-            id: "tx-auto-" + Date.now(),
-            timestamp: new Date().toISOString(),
-            from: "SKYGUARD",
-            callsign: newSuggestion.targetCallsigns.length === 1 ? newSuggestion.targetCallsigns[0] : "",
-            message: "[AUTO] " + newSuggestion.message,
-          };
-          setTranscript(prev => [...prev, entry]);
-
-          // Execute the maneuver for the target plane
-          if (newSuggestion.message.includes("360")) {
-            const targetCallsign = newSuggestion.targetCallsigns[0];
-            const targetPlane = nextPlanes.find(p => p.callsign === targetCallsign);
-            if (targetPlane) {
-              setPlanes(currentPlanes => currentPlanes.map(p => {
-                if (p.id === targetPlane.id) {
-                  return performManeuver(p, "DO_360", 0);
-                }
-                return p;
-              }));
-            }
-          }
-
-          // Clear suggestion after auto-broadcast
-          return null;
-        }
-
-        return newSuggestion;
+        return prevSuggestion ? prevSuggestion : chooseSuggestion(nextPlanes, nextAnomalies);
       });
 
     }, tickInterval); // Use adjustable tick interval
 
     return () => clearTimeout(timer);
   }, [planes, brainAutoMode, tickInterval]); // Add tickInterval dependency
+
+  // Transcript Polling (Voice Agent Integration)
+  useEffect(() => {
+    const pollInterval = setInterval(() => {
+      fetch("http://localhost:4000/api/transcript/updates")
+        .then(res => res.json())
+        .then((data: any[]) => {
+          if (data && data.length > 0) {
+            setTranscript(prev => {
+              const existing = new Set(prev.map(m => m.id));
+              // Convert to TranscriptEntry format if needed
+              const newEntries = data.filter((d: any) => !existing.has(d.id)).map((d: any) => ({
+                id: d.id,
+                timestamp: d.timestamp,
+                from: "ATC", // Agent is acting as ATC
+                callsign: d.callsign,
+                message: d.message
+              }));
+              if (newEntries.length === 0) return prev;
+              return [...prev, ...newEntries];
+            });
+          }
+        })
+        .catch(() => { }); // Ignore poll errors
+    }, 1000); // 1 sec poll
+    return () => clearInterval(pollInterval);
+    return () => clearInterval(pollInterval);
+  }, []);
+
+  // Auto Mode Effect
+  useEffect(() => {
+    if (brainAutoMode && suggestedMessage) {
+      const now = Date.now();
+      const MIN_DELAY = 5000; // 5 seconds minimum between broadcasts
+      const timeSinceLast = now - lastBroadcastTime.current;
+
+      if (timeSinceLast < MIN_DELAY) {
+        // Wait for the remainder of the delay
+        const timeout = setTimeout(() => {
+          handleBroadcast();
+          lastBroadcastTime.current = Date.now();
+        }, MIN_DELAY - timeSinceLast);
+        return () => clearTimeout(timeout);
+      } else {
+        // Broadcast immediately
+        handleBroadcast();
+        lastBroadcastTime.current = Date.now();
+      }
+    }
+  }, [brainAutoMode, suggestedMessage]);
 
   // Clock
   const [now, setNow] = useState(() => new Date());
@@ -179,6 +199,17 @@ function App() {
     };
     setTranscript(prev => [...prev, entry]);
 
+    // Trigger Voice Agent
+    console.log("Triggering voice agent with:", suggestedMessage.message);
+    fetch("http://localhost:4000/api/speak", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: suggestedMessage.message })
+    })
+      .then(res => res.json())
+      .then(data => console.log("Voice Agent Response:", data))
+      .catch(err => console.error("Failed to trigger voice agent:", err));
+
     // Execute the maneuver for the target plane
     if (suggestedMessage.message.includes("360")) {
       const targetCallsign = suggestedMessage.targetCallsigns[0];
@@ -194,7 +225,7 @@ function App() {
     }
 
     // Clear suggestion and get next one
-    setSuggestedMessage(chooseSuggestion(planes, anomalies));
+    setSuggestedMessage(null);
   };
 
   const handleReject = () => {
@@ -317,7 +348,7 @@ function App() {
     <>
       <div className="top-bar">
         <div className="top-bar-left">
-          <div className="top-title">SkyGuard AI</div>
+          <div className="top-title">SkyGuard</div>
           <div className="top-subtitle">Automated Air Traffic Control</div>
         </div>
         <div className="top-bar-right">

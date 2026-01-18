@@ -7,10 +7,24 @@ const PORT = process.env.PORT || 4000;
 const RANDOMNESS = Number(process.env.SIM_RANDOMNESS || "1");
 
 const simulations = new Map();
+const transcriptBuffer = [];
+let lastTranscriptId = 0;
 
 function createServer() {
   const server = http.createServer((req, res) => {
     const parsed = url.parse(req.url || "", true);
+
+    // Global CORS Handling
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+
+    if (req.method === "OPTIONS") {
+      res.writeHead(204);
+      res.end();
+      return;
+    }
+
     if (parsed.pathname === "/health") {
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ status: "ok" }));
@@ -32,6 +46,85 @@ function createServer() {
         "Content-Disposition": `attachment; filename="${simId}.csv"`
       });
       res.end(csv);
+      return;
+    }
+
+    if (parsed.pathname === "/api/transcript/log" && req.method === "POST") {
+      let body = "";
+      req.on("data", chunk => body += chunk);
+      req.on("end", () => {
+        try {
+          const entry = JSON.parse(body);
+          // Add ID and timestamp if missing
+          entry.id = `ext-${Date.now()}-${++lastTranscriptId}`;
+          if (!entry.timestamp) entry.timestamp = new Date().toISOString();
+
+          transcriptBuffer.push(entry);
+          // Keep buffer size limited
+          if (transcriptBuffer.length > 50) transcriptBuffer.shift();
+
+          res.writeHead(200, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ status: "logged", id: entry.id }));
+        } catch (e) {
+          res.writeHead(400, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ error: "bad json" }));
+        }
+      });
+      return;
+    }
+
+    if (parsed.pathname === "/api/transcript/updates" && req.method === "GET") {
+      // Return everything for now, client filters. Or simple since param.
+      // For simplicity, return last 20.
+      const recent = transcriptBuffer.slice(-20);
+      res.writeHead(200, { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" });
+      res.end(JSON.stringify(recent));
+      return;
+    }
+
+    if (parsed.pathname === "/api/speak" && req.method === "POST") {
+      let body = "";
+      req.on("data", chunk => body += chunk);
+      req.on("end", () => {
+        console.log("Received /api/speak request");
+        try {
+          const { text } = JSON.parse(body);
+          console.log("Text to speak:", text);
+          if (!text) {
+            res.writeHead(400);
+            res.end(JSON.stringify({ error: "missing text" }));
+            return;
+          }
+
+          // Send to python agent
+          const proxyReq = http.request({
+            hostname: '127.0.0.1',
+            port: 8081,
+            path: '/speak',
+            method: 'POST',
+            headers: {
+              'Content-Type': 'text/plain',
+              'Content-Length': Buffer.byteLength(text)
+            }
+          }, (proxyRes) => {
+            res.writeHead(proxyRes.statusCode, { "Content-Type": "application/json" });
+            res.end(JSON.stringify({ status: proxyRes.statusCode === 200 ? "ok" : "agent_error" }));
+          });
+
+          proxyReq.on('error', (e) => {
+            console.error("Agent proxy error:", e);
+            res.writeHead(503, { "Content-Type": "application/json" });
+            res.end(JSON.stringify({ error: "agent_offline" }));
+          });
+
+          proxyReq.write(text);
+          proxyReq.end();
+
+        } catch (e) {
+          res.writeHead(400);
+          res.end(JSON.stringify({ error: "bad json" }));
+        }
+      });
       return;
     }
 
