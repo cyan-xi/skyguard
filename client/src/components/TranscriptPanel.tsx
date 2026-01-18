@@ -25,8 +25,10 @@ export function TranscriptPanel({ messages }: TranscriptPanelProps) {
           originClass = "origin-pilot";
         }
 
+        const isEmergency = entry.message.includes('MAYDAY');
+
         return (
-          <div key={entry.id} className="transcript-entry">
+          <div key={entry.id} className={`transcript-entry${isEmergency ? ' emergency-message' : ''}`}>
             <div className="transcript-timestamp">{formatTime(entry.timestamp)}</div>
             <div className={`transcript-origin ${originClass}`}>{entry.from}</div>
             <div className="transcript-callsign">{entry.callsign}</div>

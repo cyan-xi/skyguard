@@ -36,6 +36,9 @@ export interface Plane {
     willTouchAndGo?: boolean;
     hasLanded?: boolean;
 
+    // Demo/Emergency
+    isEmergency?: boolean;
+
     lastUpdated: string;
 }
 

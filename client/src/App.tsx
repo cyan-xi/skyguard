@@ -15,6 +15,7 @@ import { SuggestedMessagePanel } from "./components/SuggestedMessagePanel";
 import { AnomaliesPanel } from "./components/AnomaliesPanel";
 import { ActiveAircraftPanel } from "./components/ActiveAircraftPanel";
 import { ControlPanel } from "./components/ControlPanel";
+import { createEmergencyScenario } from "./simulation/scenarios";
 
 function pad2(value: number): string {
   return value.toString().padStart(2, "0");
@@ -27,8 +28,11 @@ function App() {
   const [anomalies, setAnomalies] = useState<Anomaly[]>([]);
   const [suggestedMessage, setSuggestedMessage] = useState<SuggestedMessage | null>(null);
   const [selectedPlaneIds, setSelectedPlaneIds] = useState<Set<string>>(new Set());
-  const [brainAutoMode, setBrainAutoMode] = useState(false);
+  const [brainAutoMode] = useState(false);
   const [tickInterval, setTickInterval] = useState(2000); // ms per tick
+  const [scriptedMessages, setScriptedMessages] = useState<any[]>([]);
+  const [currentMessageIndex, setCurrentMessageIndex] = useState(0);
+  const [isScriptedMode, setIsScriptedMode] = useState(false);
 
   // Initialize
   useEffect(() => {
@@ -59,9 +63,16 @@ function App() {
         });
       }
 
-      // After moving, recompute anomalies
+      // After moving, recompute anomalies and accumulate over time
       const nextAnomalies = computeAnomalies(nextPlanes);
-      setAnomalies(nextAnomalies);
+      if (nextAnomalies.length > 0) {
+        setAnomalies(prev => {
+          const existingIds = new Set(prev.map(a => a.id));
+          const uniqueNew = nextAnomalies.filter(a => !existingIds.has(a.id));
+          if (uniqueNew.length === 0) return prev;
+          return [...prev, ...uniqueNew];
+        });
+      }
 
       // If no suggestion, pick one
       setSuggestedMessage((prevSuggestion) => {
@@ -201,6 +212,107 @@ function App() {
     }));
   };
 
+  const loadEmergencyDemo = () => {
+    const scenario = createEmergencyScenario();
+    setPlanes(scenario.planes);
+    setTranscript(scenario.transcript);
+    setAnomalies(scenario.anomalies || []);
+    setSelectedPlaneIds(new Set());
+
+    // Load scripted messages
+    if (scenario.scriptedMessages) {
+      setScriptedMessages(scenario.scriptedMessages);
+      setCurrentMessageIndex(0);
+      setIsScriptedMode(true);
+
+      // Set first message as suggestion
+      const firstMsg = scenario.scriptedMessages[0];
+      setSuggestedMessage({
+        message: firstMsg.message,
+        targetCallsigns: [firstMsg.targetCallsign],
+        priority: 'caution',
+        createdAt: new Date().toISOString()
+      });
+    }
+  };
+
+  const handleAcceptScriptedMessage = () => {
+    if (!isScriptedMode || currentMessageIndex >= scriptedMessages.length) return;
+
+    const currentMsg = scriptedMessages[currentMessageIndex];
+
+    // Broadcast aviation format message
+    const entry: TranscriptEntry = {
+      id: "atc-" + Date.now(),
+      timestamp: new Date().toISOString(),
+      from: "SKYGUARD",
+      callsign: currentMsg.targetCallsign,
+      message: currentMsg.aviationMessage,
+    };
+    setTranscript(prev => [...prev, entry]);
+
+    // Execute instruction
+    const targetPlane = planes.find(p => p.id === currentMsg.targetPlaneId);
+    if (targetPlane && currentMsg.instruction) {
+      if (currentMsg.instruction.type === "DO_360") {
+        setPlanes(currentPlanes => currentPlanes.map(p => {
+          if (p.id === currentMsg.targetPlaneId) {
+            return performManeuver(p, "DO_360", 0);
+          }
+          return p;
+        }));
+      } else if (currentMsg.instruction.type === "EXTEND_DOWNWIND") {
+        // Continue flying straight - don't follow pattern
+        setPlanes(currentPlanes => currentPlanes.map(p => {
+          if (p.id === currentMsg.targetPlaneId) {
+            return {
+              ...p,
+              flightMode: "init", // Switch to straight flight mode
+              targetHeading: 180 // Keep heading south on downwind
+            };
+          }
+          return p;
+        }));
+      } else if (currentMsg.instruction.type === "CLEARED_TO_LAND") {
+        // Set emergency aircraft to landing mode
+        setPlanes(currentPlanes => currentPlanes.map(p => {
+          if (p.id === currentMsg.targetPlaneId) {
+            return { ...p, willTouchAndGo: false };
+          }
+          return p;
+        }));
+      }
+    }
+
+    // Move to next message
+    advanceToNextMessage();
+  };
+
+  const handleOverrideScriptedMessage = () => {
+    // Just skip to next message without executing
+    advanceToNextMessage();
+  };
+
+  const advanceToNextMessage = () => {
+    const nextIndex = currentMessageIndex + 1;
+
+    if (nextIndex < scriptedMessages.length) {
+      // Show next message
+      setCurrentMessageIndex(nextIndex);
+      const nextMsg = scriptedMessages[nextIndex];
+      setSuggestedMessage({
+        message: nextMsg.message,
+        targetCallsigns: [nextMsg.targetCallsign],
+        priority: 'caution',
+        createdAt: new Date().toISOString()
+      });
+    } else {
+      // End of scripted messages
+      setIsScriptedMode(false);
+      setSuggestedMessage(null);
+    }
+  };
+
   return (
     <>
       <div className="top-bar">
@@ -209,31 +321,6 @@ function App() {
           <div className="top-subtitle">Automated Air Traffic Control</div>
         </div>
         <div className="top-bar-right">
-          <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
-            <input
-              type="checkbox"
-              checked={brainAutoMode}
-              onChange={(e) => setBrainAutoMode(e.target.checked)}
-            />
-            <span style={{ fontSize: '14px', color: brainAutoMode ? '#4ade80' : '#fff' }}>
-              {brainAutoMode ? '🤖 AUTO MODE' : '👤 MANUAL MODE'}
-            </span>
-          </label>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginLeft: '20px' }}>
-            <span style={{ fontSize: '12px', color: '#aaa' }}>Sim Speed:</span>
-            <input
-              type="range"
-              min="500"
-              max="5000"
-              step="500"
-              value={tickInterval}
-              onChange={(e) => setTickInterval(Number(e.target.value))}
-              style={{ width: '120px' }}
-            />
-            <span style={{ fontSize: '12px', color: '#4ade80' }}>
-              {(1000 / tickInterval).toFixed(1)}x
-            </span>
-          </div>
           <div className="status-chip">SYSTEM ONLINE</div>
           <div id="utc-time" className="utc-time">
             {utcTime}
@@ -282,31 +369,73 @@ function App() {
             />
           </div>
         </div>
-        <div className="column right-column">
-          <div className="panel-header" style={{ marginBottom: '10px' }}>Manual Controls</div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
-            {planes.map(p => (
-              <ControlPanel
-                key={p.id}
-                callsign={p.callsign}
-                speed={p.groundspeed}
-                onManeuver={(cmd, val) => handleManeuver(p.id, cmd, val)}
+        <div className="column right-column" style={{ height: '100%', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+          <div className="panel" style={{ flex: '1 1 auto', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+            <div className="panel-header">Manual Controls</div>
+            <div style={{ flex: 1, overflowY: 'auto', padding: '5px', display: 'flex', flexDirection: 'column', gap: '5px' }}>
+              {planes.map(p => (
+                <ControlPanel
+                  key={p.id}
+                  callsign={p.callsign}
+                  speed={p.groundspeed}
+                  onManeuver={(cmd, val) => handleManeuver(p.id, cmd, val)}
+                />
+              ))}
+            </div>
+            {/* Speed slider in footer of manual controls */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 12px', borderTop: '1px solid #1f2937', background: 'rgba(2, 6, 23, 0.5)' }}>
+              <span style={{ fontSize: '10px', color: '#aaa' }}>SIM SPEED:</span>
+              <input
+                type="range"
+                min="500"
+                max="5000"
+                step="500"
+                value={tickInterval}
+                onChange={(e) => setTickInterval(Number(e.target.value))}
+                style={{ flex: 1, height: '4px' }}
               />
-            ))}
+              <span style={{ fontSize: '11px', color: '#4ade80', minWidth: '30px' }}>
+                {(1000 / tickInterval).toFixed(1)}x
+              </span>
+            </div>
           </div>
 
-          <div className="panel suggested-panel" style={{ marginTop: '20px' }}>
+          <div className="panel suggested-panel" style={{ flex: '0 0 auto' }}>
             <div className="panel-header">SkyGuard Suggested Message</div>
-            <SuggestedMessagePanel
-              suggestedMessage={suggestedMessage}
-              onBroadcast={handleBroadcast}
-              onReject={handleReject}
-            />
+            <div style={{ padding: '0 4px' }}>
+              <SuggestedMessagePanel
+                suggestedMessage={suggestedMessage}
+                onBroadcast={isScriptedMode ? handleAcceptScriptedMessage : handleBroadcast}
+                onReject={isScriptedMode ? handleOverrideScriptedMessage : handleReject}
+              />
+            </div>
           </div>
-          <div className="panel anomalies-panel">
+
+          <div className="panel anomalies-panel" style={{ flex: '0 1 30%', display: 'flex', flexDirection: 'column', minHeight: '120px' }}>
             <div className="panel-header">Anomalies – Traffic Dangers</div>
-            <div id="anomalies-list" className="panel-content anomalies-list">
+            <div id="anomalies-list" className="panel-content anomalies-list" style={{ flex: 1, overflowY: 'auto' }}>
               <AnomaliesPanel anomalies={anomalies} />
+            </div>
+            <div style={{ padding: '8px', borderTop: '1px solid #1f2937', display: 'flex', justifyContent: 'flex-start' }}>
+              <button
+                onClick={loadEmergencyDemo}
+                style={{
+                  padding: '6px 10px',
+                  background: '#dc2626',
+                  border: 'none',
+                  borderRadius: '4px',
+                  color: 'white',
+                  fontWeight: 'bold',
+                  cursor: 'pointer',
+                  fontSize: '11px',
+                  width: '33%',
+                  transition: 'background 0.2s'
+                }}
+                onMouseOver={(e) => e.currentTarget.style.backgroundColor = '#b91c1c'}
+                onMouseOut={(e) => e.currentTarget.style.backgroundColor = '#dc2626'}
+              >
+                🚨 DEMO
+              </button>
             </div>
           </div>
         </div>

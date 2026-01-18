@@ -336,6 +336,7 @@ export function MapOverlay({ planes, anomalies, onPlaneClick }: MapOverlayProps)
 
             // Anomaly Check
             const isCritical = anomalies && anomalies.some((a) => a.involvedCallsigns.includes(plane.callsign));
+            const isEmergency = (plane as any).isEmergency;
 
             elements.push(
                 <div
@@ -344,17 +345,36 @@ export function MapOverlay({ planes, anomalies, onPlaneClick }: MapOverlayProps)
                     style={{ left: px, top: py }}
                     onClick={(e) => { e.stopPropagation(); onPlaneClick(plane.id); }}
                 >
+                    {/* Emergency flashing ring */}
+                    {isEmergency && (
+                        <div style={{
+                            position: 'absolute',
+                            width: '40px',
+                            height: '40px',
+                            left: '8px',
+                            top: '8px',
+                            transform: 'translate(-50%, -50%)',
+                            border: '3px solid #dc2626',
+                            borderRadius: '50%',
+                            pointerEvents: 'none',
+                            animation: 'emergency-pulse 1s ease-in-out infinite',
+                        }} />
+                    )}
                     {/* Rotate icon based on heading. Map Up is 0, but Runway is tilted. 
                         We should rotate relative to screen.
                         Heading 0 (North) -> Screen Up.
                         Heading 270 (West) -> Screen Left.
                         So standard rotation is fine.
                     */}
-                    <div className="plane-icon" style={{ transform: `rotate(${plane.heading}deg)` }} />
+                    <div className="plane-icon" style={{
+                        transform: `rotate(${plane.heading}deg)`,
+                        borderBottomColor: isEmergency ? '#dc2626' : undefined,
+                        filter: isEmergency ? 'drop-shadow(0 0 6px #dc2626)' : undefined
+                    }} />
                     <div className="plane-leader" />
                     <div className="plane-label">
                         <div className="plane-label-line1">
-                            {plane.callsign}
+                            {plane.callsign}{isEmergency ? ' 🚨' : ''}
                         </div>
                         <div className="plane-label-line2">
                             {Math.round(plane.altitude)} ft / {Math.round(plane.groundspeed)} kt
