@@ -126,7 +126,107 @@ body {
 
 .transcript-column {
   flex: 0 0 26%;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  /* Gap between top and bottom panels */
+  background-color: transparent;
+  /* Remove bg from column container, move to panels */
+  border: none;
+  box-shadow: none;
+  overflow: visible;
 }
+
+.left-panel-top {
+  flex: 0 0 40%;
+  /* Top section size */
+  background-color: #020617;
+  border: 1px solid #1f2937;
+  border-radius: 8px;
+  box-shadow: 0 18px 45px rgba(15, 23, 42, 0.85);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.left-panel-bottom {
+  flex: 1;
+  /* Bottom section fills rest */
+  background-color: #020617;
+  border: 1px solid #1f2937;
+  border-radius: 8px;
+  box-shadow: 0 18px 45px rgba(15, 23, 42, 0.85);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.active-aircraft-list {
+  padding: 10px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.aircraft-card {
+  background-color: #0f172a;
+  border: 1px solid #1e293b;
+  border-radius: 4px;
+  padding: 8px;
+}
+
+.aircraft-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+}
+
+.aircraft-callsign {
+  font-family: "Share Tech Mono", monospace;
+  font-size: 14px;
+  color: #fbbf24;
+  font-weight: 600;
+}
+
+.aircraft-status-badge {
+  font-size: 9px;
+  background-color: #1e293b;
+  color: #38bdf8;
+  padding: 2px 6px;
+  border-radius: 4px;
+  border: 1px solid #334155;
+}
+
+.aircraft-details {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+}
+
+.detail-row {
+  font-size: 10px;
+  color: #94a3b8;
+}
+
+.detail-row .label {
+  margin-right: 4px;
+  color: #64748b;
+}
+
+.detail-row .value {
+  font-family: "Share Tech Mono", monospace;
+  color: #e2e8f0;
+}
+
+.transcript-list {
+  font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+
 
 .map-column {
   flex: 1 1 auto;
@@ -153,17 +253,6 @@ body {
   padding: 10px;
 }
 
-.transcript-list {
-  font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-  font-size: 11px;
-  line-height: 1.4;
-}
-
-.transcript-entry {
-  display: flex;
-  gap: 6px;
-  margin-bottom: 4px;
-}
 
 .transcript-timestamp {
   color: #546a8e;
@@ -342,8 +431,8 @@ body {
   height: 0;
   border-left: 7px solid transparent;
   border-right: 7px solid transparent;
-  border-bottom: 16px solid #22c55e;
-  filter: drop-shadow(0 0 3px rgba(18, 255, 181, 0.8));
+  border-bottom: 16px solid #00ffff;
+  filter: drop-shadow(0 0 3px rgba(0, 255, 255, 0.8));
   transform-origin: 50% 70%;
 }
 

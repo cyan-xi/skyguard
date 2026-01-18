@@ -1,569 +1,279 @@
-import type { Plane, TranscriptEntry, Anomaly, SuggestedMessage, PatternLeg } from "./types";
+import type { Plane, TranscriptEntry, Anomaly, SuggestedMessage } from "./types";
 
-let planeCounter = 0;
+// User Defined Geometry
+// Visual: Top=Crosswind, Left=Downwind, Bottom=Base, Right=Runway
+// Flow: Runway (Bottom-to-Top) -> Crosswind (Right-to-Left) -> Downwind (Top-to-Bottom) -> Base (Left-to-Right)
+
+// Logical Coordinates (Normalized 0-1 or NM? Let's use local NM approximations)
+// Let's assume Runway Length = 1.0 NM.
+// Width = 0.5 NM.
+// Center = (0,0).
+// Runway Axis = Vertical (Y).
+// Runway Top = (0, 0.5). Runway Bottom = (0, -0.5).
+// BUT map space might be rotated.
+// Let's stick to the abstract concept:
+// Leg 1 (Runway): (0, -0.5) to (0, 0.5)
+// Leg 2 (Crosswind): (0, 0.5) to (-0.5, 0.5)  <-- "Left" is negative X?
+// Leg 3 (Downwind): (-0.5, 0.5) to (-0.5, -0.5)
+// Leg 4 (Base): (-0.5, -0.5) to (0, -0.5)
+
+// Coordinate mapping to Screen:
+// Engine X/Y -> Screen X/Y.
+// MapOverlay assumes: localToImagePixels scales X (Along) and Y (Across).
+// Wait, MapOverlay logic: 
+// dx = xLocal * alongScale; (Along runway)
+// dy = yLocal * acrossScale; (Across runway)
+// Our logic above: Y is Along, X is Across.
+// So:
+// Engine X = Across (0.5 width)
+// Engine Y = Along (1.0 length)
+
+// const RUNWAY_LEN = 1.0;
+// const PATTERN_WIDTH = 0.5;
+
+// const WAYPOINTS = {
+//     RUNWAY_START: { x: 0, y: -0.5 }, // Bottom
+//     RUNWAY_END: { x: 0, y: 0.5 },  // Top
+//     CROSS_END: { x: 0.5, y: 0.5 }, // Top-Left (Wait, MapOverlay 'Left' corresponds to Positive Y in its logic? Let's check)
+//     // MapOverlay: RUNWAY_UNIT_ACROSS = {-uy, ux}.
+//     // If Runway is (0,1), Across is (-1, 0) Left.
+//     // localToImage: imgX = ... + across * dy.
+//     // So Positive 'yLocal' in MapOverlay is 'Left'.
+//     // I will map Engine 'Y' to MapOverlay 'X' (Along) and Engine 'X' to MapOverlay 'Y' (Across).
+//     // CONFUSING.
+// };
+
+// SIMPLER:
+// Engine State: x, y.
+// Visuals: x, y passed directly to localToImagePixels.
+// localToImagePixels(x, y):
+//   x is "Along Runway" (-0.5 to 0.5).
+//   y is "Across Runway" (0 to 0.7?).
+// User wants Width = Half Length = 0.5.
+// So pattern y goes from 0 to 0.5 (Left).
+
+// Path Cycle:
+// 1. Runway: x (-0.5 -> 0.5), y=0.
+// 2. Crosswind: x=0.5, y (0 -> 0.5).
+// 3. Downwind: x (0.5 -> -0.5), y=0.5.
+// 4. Base: x=-0.5, y (0.5 -> 0).
+
+// Wait, Visual Top is Runway 10 (P1).
+// RUNWAY10_PIXEL corresponds to xLocal = -0.5 approx?
+// Let's verify MapOverlay.tsx:
+// midX = (start.x + end.x) / 2
+// dx = xLocal * alongScale.
+// If xLocal is -0.5 -> moves towards P1?
+// RUNWAY_UNIT_ALONG = (P2-P1).
+// P1 is Start. P2 is End.
+// So Vector is P1 -> P2.
+// If xLocal is positive, we move towards P2 (Bottom).
+// If xLocal is negative, we move towards P1 (Top).
+
+// So Top = Negative X.
+// Bottom = Positive X.
+
+// User Cycle: Runway (Bottom to Top) -> Crosswind (Top Edge).
+// So Runway Leg = P2 -> P1 (Positive X to Negative X).
+// Crosswind Leg = Top Edge (at X = -0.5). Moving Right to Left.
+// Right side is Y=0. Left side is Y=0.5 (Positive Y is Left).
+// So Crosswind: X=-0.5, Y goes 0 -> 0.5.
+// Downwind Leg: Left Edge (Y=0.5). Moving Top to Bottom (X: -0.5 -> 0.5).
+// Base Leg: Bottom Edge (X=0.5). Moving Left to Right (Y: 0.5 -> 0).
 
 // Constants
-const RUNWAY_HEADING = 278; // Approximate for Rwy 28
-const TURN_RATE_DEG_PER_SEC = 3;
-const CLIMB_RATE_FT_PER_MIN = 800;
-const ACCEL_KT_PER_SEC = 2;
-const FIELD_ELEVATION_FT = 1253;
-const PATTERN_ALTITUDE_FT = 2250;
-const PATTERN_SPEED_KT = 90;
-const FINAL_APPROACH_SPEED_KT = 65;
-const CLIMBOUT_SPEED_KT = 85;
-const ENROUTE_ALT_MIN_FT = 3000;
-const ENROUTE_ALT_MAX_FT = 4500;
+const SPEED_KT = 90;
+const TURN_RATE = 3; // deg/sec
 
-// Pattern Geometry (NM relative to center)
-// Simple state machine logic rather than strict spatial boxes for now, 
-// unless we need to trigger leg changes based on position.
-// For now, we'll initialize them with defaults.
+export function createInitialPlanes(): Plane[] {
+    // 1. Existing Pattern Plane
+    const p1 = createPlaneOnDownwind();
 
-export function createRandomPlane(): Plane {
-    const now = new Date().toISOString();
-    planeCounter += 1;
+    // 2. New Transit Plane (Top Left, flying to Downwind Entry)
+    const p2 = createTransitPlane();
 
-    const callsign = "N" + (100 + planeCounter) + String(planeCounter % 10) + "X";
-    const intention = Math.random() < 0.5 ? "touch-and-go" : "full-stop";
+    return [p1, p2];
+}
 
-    let x = 0;
-    let y = 0;
-    let heading = RUNWAY_HEADING;
-    let altitude = PATTERN_ALTITUDE_FT;
-    let groundspeed = PATTERN_SPEED_KT;
-    let flightMode: Plane["flightMode"] = "pattern";
-    let patternLeg: PatternLeg = "upwind";
-    let targetHeading = heading;
-    let targetAltitude = altitude;
-    let targetGroundspeed = groundspeed;
-
-    const spawnMode = Math.random();
-
-    if (spawnMode < 0.4) {
-        const legs: PatternLeg[] = ["upwind", "crosswind", "downwind", "base", "final"];
-        patternLeg = legs[Math.floor(Math.random() * legs.length)];
-        const isLeft = Math.random() < 0.5;
-        const side = isLeft ? 1 : -1;
-
-        switch (patternLeg) {
-            case "upwind":
-                x = 0.2 + Math.random() * (CROSS_X - 0.2);
-                y = 0;
-                heading = getPatternHeading("upwind", isLeft ? "left" : "right");
-                altitude = PATTERN_ALTITUDE_FT;
-                groundspeed = PATTERN_SPEED_KT;
-                break;
-            case "crosswind":
-                x = CROSS_X;
-                y = side * Math.random() * PATTERN_Y_OFFSET;
-                heading = getPatternHeading("crosswind", isLeft ? "left" : "right");
-                altitude = PATTERN_ALTITUDE_FT;
-                groundspeed = PATTERN_SPEED_KT;
-                break;
-            case "downwind":
-                x = BASE_X + Math.random() * (CROSS_X - BASE_X);
-                y = side * PATTERN_Y_OFFSET;
-                heading = getPatternHeading("downwind", isLeft ? "left" : "right");
-                altitude = PATTERN_ALTITUDE_FT;
-                groundspeed = PATTERN_SPEED_KT;
-                break;
-            case "base":
-                x = BASE_X;
-                y = side * Math.random() * PATTERN_Y_OFFSET;
-                heading = getPatternHeading("base", isLeft ? "left" : "right");
-                altitude = PATTERN_ALTITUDE_FT - 400;
-                groundspeed = PATTERN_SPEED_KT - 10;
-                break;
-            case "final":
-                x = BASE_X + Math.random() * (0.5 - BASE_X);
-                y = side * 0.1;
-                heading = getPatternHeading("final", isLeft ? "left" : "right");
-                altitude = FIELD_ELEVATION_FT + 300;
-                groundspeed = FINAL_APPROACH_SPEED_KT;
-                break;
-            case "none":
-                x = 0;
-                y = 0;
-                heading = RUNWAY_HEADING;
-                altitude = PATTERN_ALTITUDE_FT;
-                groundspeed = PATTERN_SPEED_KT;
-                break;
-        }
-
-        flightMode = "pattern";
-        targetHeading = heading;
-        targetAltitude = altitude;
-        targetGroundspeed = groundspeed;
-    } else {
-        const innerSpawn = spawnMode < 0.7;
-        const spawnRadius = innerSpawn ? 2.0 : 3.0;
-        const spawnAngle = Math.random() * Math.PI * 2;
-        x = Math.cos(spawnAngle) * spawnRadius;
-        y = Math.sin(spawnAngle) * spawnRadius;
-
-        const joinX = BASE_X + Math.random() * (CROSS_X - BASE_X);
-        const joinY = PATTERN_Y_OFFSET * (Math.random() < 0.5 ? 1 : -1);
-        const headingRad = Math.atan2(joinY - y, joinX - x);
-        heading = normalizeHeading((headingRad * 180) / Math.PI);
-
-        altitude =
-            ENROUTE_ALT_MIN_FT + Math.random() * (ENROUTE_ALT_MAX_FT - ENROUTE_ALT_MIN_FT);
-        groundspeed = PATTERN_SPEED_KT + 20;
-
-        flightMode = "transit";
-        patternLeg = "none";
-        targetHeading = heading;
-        targetAltitude = PATTERN_ALTITUDE_FT;
-        targetGroundspeed = PATTERN_SPEED_KT + 10;
-    }
-
+function createPlaneOnDownwind(): Plane {
     return {
-        id: callsign,
-        callsign,
-        intention,
-        x,
-        y,
-        altitude,
-        heading,
-        groundspeed,
-
-        targetHeading,
-        targetAltitude,
-        targetGroundspeed,
-
-        turnRate: TURN_RATE_DEG_PER_SEC,
-        climbRate: CLIMB_RATE_FT_PER_MIN,
-        acceleration: ACCEL_KT_PER_SEC,
-
-        flightMode,
-        patternLeg,
-
-        lastUpdated: now,
+        id: "TEST01",
+        callsign: "TEST01",
+        intention: "full-stop",
+        x: -0.5,
+        y: 0.0,
+        altitude: 1000,
+        heading: 180,
+        groundspeed: SPEED_KT,
+        targetHeading: 180,
+        targetAltitude: 1000,
+        targetGroundspeed: SPEED_KT,
+        turnRate: TURN_RATE,
+        climbRate: 0,
+        acceleration: 0,
+        flightMode: "pattern",
+        patternLeg: "downwind",
+        lastUpdated: new Date().toISOString()
     };
 }
 
-export function createInitialPlanes(): Plane[] {
-    const planes = [];
-    for (let i = 0; i < 3; i++) {
-        planes.push(createRandomPlane());
-    }
-    return planes;
-}
+function createTransitPlane(): Plane {
+    // Spawn Top-Left (Outside)
+    // Map is roughly +/- 1.0. 
+    // Pattern Top-Left is (-0.5, 0.5).
+    // Spawn at (-0.9, 0.9).
+    const startX = -0.9;
+    const startY = 0.9;
 
-export function createInitialTranscript(): TranscriptEntry[] {
-    const now = new Date();
-    const t0 = new Date(now.getTime() - 120000);
-    const t1 = new Date(now.getTime() - 90000);
-    const t2 = new Date(now.getTime() - 45000);
-    const t3 = new Date(now.getTime() - 20000);
-    return [
-        {
-            id: "t1",
-            timestamp: t0.toISOString(),
-            from: "PILOT",
-            callsign: "N123AB",
-            message: "Beaver Tower, N123AB ten miles east, inbound full stop with information Bravo.",
-        },
-        {
-            id: "t2",
-            timestamp: t1.toISOString(),
-            from: "ATC",
-            callsign: "N123AB",
-            message: "N123AB, Beaver Tower, enter right downwind runway 28, report midfield.",
-        },
-        {
-            id: "t3",
-            timestamp: t2.toISOString(),
-            from: "PILOT",
-            callsign: "N456CD",
-            message: "Beaver Tower, N456CD five miles northwest, touch and go.",
-        },
-        {
-            id: "t4",
-            timestamp: t3.toISOString(),
-            from: "ATC",
-            callsign: "N456CD",
-            message: "N456CD, Beaver Tower, make left traffic runway 28, report two mile final.",
-        },
-    ];
-}
+    // Target: Downwind Entry (-0.5, 0.5)
+    // Calculate Heading logic
+    const dx = -0.5 - startX;
+    const dy = 0.5 - startY;
+    // Map Angle: 0 is Up, 90 Right.
+    // atan2(y, x) -> standard math.
+    // mapHeading = 90 - deg(atan2(dy, dx)).
+    const rad = Math.atan2(dy, dx);
+    const deg = (rad * 180) / Math.PI;
+    const mapHeading = (90 - deg + 360) % 360;
 
-// Pattern Constants (Local Coordinates)
-// X axis: Along runway (0 = midpoint, positive towards Rwy 28 end)
-// Y axis: Across runway (0 = centerline, positive = Left of Rwy 28)
-// Runway 28 len ~ 1.0 (from -0.5 to 0.5)
-const CROSS_X = 1.0;          // Turn Crosswind
-const PATTERN_Y_OFFSET = 0.7; // Standard width
-const BASE_X = -1.2;          // Turn Base
-
-function getTargetStateForLoop(plane: Plane, _dt: number): Partial<Plane> {
-    // If not in pattern mode, keep current targets
-    if (plane.flightMode !== "pattern" || plane.patternLeg === "none") return {};
-
-    const newState: Partial<Plane> = {};
-    const { x, y, altitude, intention } = plane;
-
-    // Determine traffic side (Left Traffic if y > 0)
-    const isLeft = y >= 0;
-    const trafficDirection = isLeft ? "left" : "right";
-
-    // Pattern State Machine
-    // Headings: Rwy 28 = 278.
-    // Upwind (278) -> Cross (188) -> Downwind (098) -> Base (008) -> Final (278) [LEFT]
-    // Upwind (278) -> Cross (008) -> Downwind (098) -> Base (188) -> Final (278) [RIGHT]
-
-    switch (plane.patternLeg) {
-        case "upwind":
-            newState.targetAltitude = PATTERN_ALTITUDE_FT;
-            newState.targetGroundspeed = PATTERN_SPEED_KT;
-            newState.targetHeading = getPatternHeading("upwind", trafficDirection);
-            if (x > CROSS_X) {
-                newState.patternLeg = "crosswind";
-                newState.targetHeading = getPatternHeading("crosswind", trafficDirection);
-            }
-            break;
-        case "crosswind":
-            newState.targetAltitude = PATTERN_ALTITUDE_FT;
-            newState.targetGroundspeed = PATTERN_SPEED_KT;
-            if (Math.abs(y) >= PATTERN_Y_OFFSET) {
-                newState.patternLeg = "downwind";
-                newState.targetHeading = getPatternHeading("downwind", trafficDirection);
-            }
-            break;
-        case "downwind":
-            newState.targetAltitude = PATTERN_ALTITUDE_FT;
-            newState.targetGroundspeed = PATTERN_SPEED_KT;
-            if (x < BASE_X) {
-                newState.patternLeg = "base";
-                newState.targetHeading = getPatternHeading("base", trafficDirection);
-                newState.targetAltitude = PATTERN_ALTITUDE_FT - 400;
-            }
-            break;
-        case "base":
-            newState.targetGroundspeed = PATTERN_SPEED_KT - 10;
-            if (altitude > FIELD_ELEVATION_FT + 300) {
-                newState.targetAltitude = PATTERN_ALTITUDE_FT - 600;
-            }
-            const distYC = Math.abs(y);
-            if (distYC < 0.15) {
-                newState.patternLeg = "final";
-                newState.targetHeading = getPatternHeading("final", trafficDirection);
-                newState.targetAltitude = FIELD_ELEVATION_FT + 200;
-            }
-            break;
-        case "final":
-            newState.targetHeading = getPatternHeading("final", trafficDirection);
-            if (altitude > FIELD_ELEVATION_FT + 200) {
-                newState.targetAltitude = FIELD_ELEVATION_FT + 200;
-                newState.targetGroundspeed = FINAL_APPROACH_SPEED_KT;
-            } else if (altitude > FIELD_ELEVATION_FT + 50) {
-                newState.targetAltitude = FIELD_ELEVATION_FT + 50;
-                newState.targetGroundspeed = FINAL_APPROACH_SPEED_KT - 20;
-            } else {
-                if (intention === "full-stop") {
-                    newState.targetAltitude = FIELD_ELEVATION_FT;
-                    newState.targetGroundspeed = 15;
-                } else if (intention === "touch-and-go") {
-                    newState.targetGroundspeed = 15;
-                    if (Math.abs(x) < 0.3 && Math.abs(y) < 0.15) {
-                        newState.patternLeg = "upwind";
-                        newState.targetHeading = getPatternHeading("upwind", trafficDirection);
-                        newState.targetAltitude = PATTERN_ALTITUDE_FT;
-                        newState.targetGroundspeed = CLIMBOUT_SPEED_KT;
-                    } else {
-                        newState.targetAltitude = FIELD_ELEVATION_FT + 30;
-                    }
-                }
-            }
-            break;
-    }
-
-    return newState;
-}
-
-function normalizeHeading(h: number) {
-    return ((h % 360) + 360) % 360;
-}
-
-function turnTowards(current: number, target: number, rate: number, dt: number): number {
-    const diff = normalizeHeading(target - current);
-    const step = rate * dt;
-    if (Math.abs(diff) < 0.1 || Math.abs(diff - 360) < 0.1) return target;
-
-    if (diff <= 180) {
-        // Turn right
-        return normalizeHeading(current + Math.min(diff, step));
-    } else {
-        // Turn left (diff > 180 means target is to the left effectively)
-        const leftDiff = 360 - diff;
-        return normalizeHeading(current - Math.min(leftDiff, step));
-    }
-}
-
-function moveValueTowards(current: number, target: number, rate: number, dt: number): number {
-    const step = rate * dt;
-    if (Math.abs(target - current) <= step) return target;
-    return current < target ? current + step : current - step;
-}
-
-function getAiUpdates(plane: Plane, dt: number): Partial<Plane> {
-    if (plane.flightMode === "transit") {
-        const r = Math.hypot(plane.x, plane.y);
-        if (r <= CROSS_X + 0.2) {
-            const isLeft = plane.y >= 0;
-            return {
-                flightMode: "pattern",
-                patternLeg: "downwind",
-                targetHeading: getPatternHeading("downwind", isLeft ? "left" : "right"),
-                targetAltitude: PATTERN_ALTITUDE_FT,
-                targetGroundspeed: PATTERN_SPEED_KT,
-            };
-        }
-
-        const headingToCenterRad = Math.atan2(-plane.y, -plane.x);
-        const headingToCenter = normalizeHeading((headingToCenterRad * 180) / Math.PI);
-        return {
-            targetHeading: headingToCenter,
-            targetAltitude: PATTERN_ALTITUDE_FT,
-            targetGroundspeed: PATTERN_SPEED_KT + 10,
-        };
-    }
-
-    if (plane.flightMode === "pattern") {
-        return getTargetStateForLoop(plane, dt);
-    }
-
-    if (plane.flightMode === "holding") {
-        return {};
-    }
-
-    return {};
+    return {
+        id: "INBOUND02",
+        callsign: "INBOUND02",
+        intention: "pattern-entry",
+        x: startX,
+        y: startY,
+        altitude: 1500, // Higher initially
+        heading: mapHeading,
+        groundspeed: SPEED_KT,
+        targetHeading: mapHeading,
+        targetAltitude: 1000,
+        targetGroundspeed: SPEED_KT,
+        turnRate: TURN_RATE,
+        climbRate: 0,
+        acceleration: 0,
+        flightMode: "transit",
+        patternLeg: "none",
+        lastUpdated: new Date().toISOString()
+    };
 }
 
 export function updatePlanePositionsLogic(currentPlanes: Plane[]): Plane[] {
-    const dtSeconds = 2.0;
-    const maxRadiusActive = 3.5;
-    const maxPlanes = 3;
+    const step = 0.04; // Speed per tick
 
-    let nextPlanes = currentPlanes.map((plane) => {
-        // 0. AI / Logic Update
-        const aiUpdates = getAiUpdates(plane, dtSeconds);
-        const p = { ...plane, ...aiUpdates };
+    // Filter out despawned planes (return null/undefined filtering usually done by map, but here we rebuild array)
+    const nextPlanes: Plane[] = [];
 
-        // 1. Physics Update
-
-        // Handle Holding (360s)
-        if (p.flightMode === "holding") {
-            const turnDir = 1; // Right turn default
-            p.targetHeading = normalizeHeading(p.heading + 10 * turnDir);
-        }
-
-        // Heading
+    currentPlanes.forEach(p => {
+        let nx = p.x;
+        let ny = p.y;
+        let nextLeg = p.patternLeg;
         let newHeading = p.heading;
-        if (p.targetHeading !== undefined) {
-            newHeading = turnTowards(p.heading, p.targetHeading, p.turnRate || TURN_RATE_DEG_PER_SEC, dtSeconds);
+        let flightMode = p.flightMode;
+
+        // --- TRANSIT LOGIC ---
+        if (flightMode === "transit") {
+            // Target: Downwind Entry (-0.5, 0.5)
+            const targetX = -0.5;
+            const targetY = 0.5;
+
+            // Move towards target
+            const dx = targetX - nx;
+            const dy = targetY - ny;
+            const dist = Math.hypot(dx, dy);
+
+            if (dist < step) {
+                // Arrived!
+                nx = targetX;
+                ny = targetY;
+                flightMode = "pattern";
+                nextLeg = "downwind";
+                newHeading = 180; // Turn to Downwind flows
+            } else {
+                // Keep moving
+                const moveX = (dx / dist) * step;
+                const moveY = (dy / dist) * step;
+                nx += moveX;
+                ny += moveY;
+                // Heading remains constant transit heading
+            }
+
+            nextPlanes.push({
+                ...p,
+                x: nx,
+                y: ny,
+                flightMode,
+                patternLeg: nextLeg as any,
+                heading: newHeading
+            });
+            return;
         }
 
-        // Altitude
-        let newAltitude = p.altitude;
-        if (p.targetAltitude !== undefined) {
-            newAltitude = moveValueTowards(p.altitude, p.targetAltitude, (p.climbRate || CLIMB_RATE_FT_PER_MIN) / 60, dtSeconds);
+        // --- PATTERN LOGIC ---
+
+        let despawn = false;
+
+        if (p.patternLeg === "crosswind") {
+            // Y=0.5. Right(0) to Left(-0.5). Heading 270.
+            if (ny < 0.5) ny = 0.5;
+            nx -= step;
+            newHeading = 270;
+            if (nx <= -0.5) {
+                nx = -0.5;
+                nextLeg = "downwind";
+            }
+        }
+        else if (p.patternLeg === "downwind") {
+            // X=-0.5. Top(0.5) to Bot(-0.5). Heading 180.
+            if (nx > -0.5) nx = -0.5;
+            ny -= step;
+            newHeading = 180;
+            if (ny <= -0.5) {
+                ny = -0.5;
+                nextLeg = "base";
+            }
+        }
+        else if (p.patternLeg === "base") {
+            // Y=-0.5. Left(-0.5) to Right(0). Heading 90.
+            if (ny > -0.5) ny = -0.5;
+            nx += step;
+            newHeading = 90;
+            if (nx >= 0.0) {
+                nx = 0.0;
+                nextLeg = "final";
+            }
+        }
+        else if (p.patternLeg === "final" || p.patternLeg === "upwind") {
+            // Leg: Right/Runway (X=0). Moves Bot(-0.5) to Top(0.5).
+            // Heading: 0.
+            // DESPAWN CHECK: Midpoint (Y=0.0)
+
+            if (nx < 0) nx = 0;
+            ny += step;
+            newHeading = 0;
+
+            if (ny >= 0.0) {
+                // Despawn!
+                despawn = true;
+            }
         }
 
-        // Speed
-        let newSpeed = p.groundspeed;
-        if (p.targetGroundspeed !== undefined) {
-            newSpeed = moveValueTowards(p.groundspeed, p.targetGroundspeed, p.acceleration || ACCEL_KT_PER_SEC, dtSeconds);
+        if (!despawn) {
+            nextPlanes.push({
+                ...p,
+                x: nx,
+                y: ny,
+                flightMode,
+                patternLeg: nextLeg as any,
+                heading: newHeading
+            });
         }
-
-        // Move
-        const rad = (newHeading * Math.PI) / 180;
-        const speedNmPerSec = (newSpeed / 3600);
-        const simSpeedFactor = 0.5; // Visual scaling
-        const dist = speedNmPerSec * simSpeedFactor * dtSeconds;
-
-        const nx = p.x + Math.cos(rad) * dist;
-        const ny = p.y + Math.sin(rad) * dist;
-
-        return {
-            ...p,
-            x: nx,
-            y: ny,
-            heading: newHeading,
-            altitude: newAltitude,
-            groundspeed: newSpeed,
-            lastUpdated: new Date().toISOString(),
-        };
     });
-
-    // Remove landed planes
-    // Landed = on final, altitude < 50, x > Runway Start (-0.5)
-    // Actually runway numbers start at ~ -0.5 (Runway 10) and +0.5 (Runway 28).
-    // Runway 28 means landing towards East (280 deg).
-    // Rwy 10 is 098 (East-ish).
-    // If heading is 278, we are flying Left on the screen (-X).
-    // 28 threshold is closer to Right (+X). 10 threshold is Left (-X).
-    // Landing on 28 means flying right-to-left.
-    // So "x > -0.5" check needs verification.
-    // If we land on 28, we start at X=0.5, fly to X=-0.5.
-    // So if x < -0.5 (passed end of runway) we are done?
-    // Let's assume landing is complete when we touch down near the threshold or roll out.
-    // Let's clean up when speed is low or passed midpoint significantly.
-
-    nextPlanes = nextPlanes.filter((plane) => {
-        const isFullStopLanded =
-            plane.intention === "full-stop" &&
-            plane.patternLeg === "final" &&
-            plane.altitude <= FIELD_ELEVATION_FT + 10 &&
-            plane.groundspeed <= 20;
-        if (isFullStopLanded) return false;
-
-        // Also remove far away
-        const r = Math.hypot(plane.x, plane.y);
-        return r <= maxRadiusActive;
-    });
-
-    // Replenish
-    while (nextPlanes.length < maxPlanes) {
-        nextPlanes.push(createRandomPlane());
-    }
 
     return nextPlanes;
 }
 
-export function computeAnomalies(planes: Plane[]): Anomaly[] {
-    const result: Anomaly[] = [];
-    const horizontalThresholdNm = 1.0; // Stricter? Or keeping same?
-    const verticalThresholdFt = 300;
-
-    for (let i = 0; i < planes.length; i++) {
-        for (let j = i + 1; j < planes.length; j++) {
-            const a = planes[i];
-            const b = planes[j];
-            const dx = a.x - b.x;
-            const dy = a.y - b.y;
-            const dist = Math.sqrt(dx * dx + dy * dy);
-            const altDiff = Math.abs(a.altitude - b.altitude);
-
-            if (dist <= horizontalThresholdNm && altDiff <= verticalThresholdFt) {
-                result.push({
-                    id: "anomaly-" + a.id + "-" + b.id,
-                    type: "loss-of-separation",
-                    severity: "critical",
-                    description: `Loss of separation: ${dist.toFixed(2)} NM / ${altDiff.toFixed(0)} ft`,
-                    involvedCallsigns: [a.callsign, b.callsign],
-                    recommendedAction: "Issue vectors immediately.",
-                });
-            } else if (dist <= horizontalThresholdNm * 1.5 && altDiff <= verticalThresholdFt * 1.5) {
-                result.push({
-                    id: "anomaly-close-" + a.id + "-" + b.id,
-                    type: "converging-head-on",
-                    severity: "warning",
-                    description: `Traffic Alert: ${dist.toFixed(2)} NM / ${altDiff.toFixed(0)} ft`,
-                    involvedCallsigns: [a.callsign, b.callsign],
-                    recommendedAction: "Monitor and advise.",
-                });
-            }
-        }
-    }
-    return result;
-}
-
-export function chooseSuggestion(planes: Plane[], anomalies: Anomaly[]): SuggestedMessage | null {
-    // For now, simple logic similar to before, but we can expand this for pattern entries
-    if (anomalies.length > 0) {
-        const critical = anomalies.find((a) => a.severity === "critical");
-        const anomaly = critical || anomalies[0];
-        const callsigns = anomaly.involvedCallsigns;
-        if (callsigns.length >= 2) {
-            return {
-                message: `${callsigns[0]}, turn right heading 360 immediately, traffic 12 o'clock less than mile.`,
-                targetCallsigns: callsigns.slice(0, 2),
-                priority: "caution",
-                createdAt: new Date().toISOString(),
-            };
-        }
-    }
-
-    // Suggest pattern entry for a transit plane
-    const transitPlane = planes.find(p => p.flightMode === "transit" && !p.intention.includes("departing"));
-    if (transitPlane) {
-        return {
-            message: `${transitPlane.callsign}, enter left downwind runway 28.`,
-            targetCallsigns: [transitPlane.callsign],
-            priority: "routine",
-            createdAt: new Date().toISOString(),
-        };
-    }
-
-    return null;
-}
-
-// Helpers
-function getPatternHeading(leg: PatternLeg, trafficDirection: "left" | "right"): number {
-    // Rwy 28 = 278 deg
-    const RWY = RUNWAY_HEADING;
-    if (leg === "upwind" || leg === "final") return RWY;
-    if (leg === "downwind") return normalizeHeading(RWY + 180);
-
-    if (trafficDirection === "left") {
-        if (leg === "crosswind") return normalizeHeading(RWY - 90); // 278 - 90 = 188
-        if (leg === "base") return normalizeHeading(RWY + 90); // 278 + 90 = 008 (Wait, Base for Left traffic 28: Downwind 098 -> Left Turn -> 008 North -> Left Turn -> 278)
-        // Let's verify:
-        // Rwy 278. 
-        // Upwind 278.
-        // Crosswind (Left Turn) -> 188.
-        // Downwind (Left Turn) -> 098.
-        // Base (Left Turn) -> 008.
-        // Final (Left Turn) -> 278.
-        // Yes.
-    } else {
-        // Right Traffic
-        if (leg === "crosswind") return normalizeHeading(RWY + 90); // 008
-        if (leg === "base") return normalizeHeading(RWY - 90); // 188
-    }
-    return RWY;
-}
-
-export function performManeuver(plane: Plane, command: string, value: string | number): Plane {
-    const p = { ...plane };
-
-    switch (command) {
-        case "HEADING":
-            p.targetHeading = Number(value);
-            p.flightMode = "transit"; // Override pattern Logic
-            break;
-
-        case "ALTITUDE":
-            p.targetAltitude = Number(value);
-            break;
-
-        case "ENTER_PATTERN":
-            // value e.g., "left-downwind"
-            // Parse leg
-            const parts = String(value).split("-");
-            const direction = parts[0] as "left" | "right";
-            const leg = parts[1] as PatternLeg;
-
-            p.patternLeg = leg;
-            p.targetHeading = getPatternHeading(leg, direction);
-            p.flightMode = "pattern";
-            break;
-
-        case "PERFORM_360":
-            // Value = "left" or "right"
-            // Simple 360: Just keep turning?
-            // Or we can manipulate targetHeading to be currentHeading - 10 (and keep updating it?)
-            // For a simple sim, maybe we just set a high turn rate for 2 full minutes? 
-            // Better: Set a flag. 
-            // We don't have a specific 'doing360' flag in types yet, but we can hack it or add it.
-            // For now, let's just do a heading change that happens to be a circle? No that's hard.
-            // Let's set a "holding" mode.
-            p.flightMode = "holding";
-            // We'll need the engine to respect "holding" by constantly updating targetHeading
-            break;
-    }
-
-    return p;
-}
+// Stubs
+export function createInitialTranscript(): TranscriptEntry[] { return []; }
+export function computeAnomalies(_planes: Plane[]): Anomaly[] { return []; }
+export function chooseSuggestion(_planes: Plane[], _anomalies: Anomaly[]): SuggestedMessage | null { return null; }
+export function performManeuver(plane: Plane, _command: string, _value: string | number): Plane { return plane; }

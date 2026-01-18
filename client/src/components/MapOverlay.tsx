@@ -20,36 +20,37 @@ const RUNWAY_VECTOR = {
 
 const RUNWAY_LENGTH_PIXELS = Math.hypot(RUNWAY_VECTOR.x, RUNWAY_VECTOR.y);
 
-const RUNWAY_UNIT_ALONG = {
-    x: RUNWAY_VECTOR.x / RUNWAY_LENGTH_PIXELS,
-    y: RUNWAY_VECTOR.y / RUNWAY_LENGTH_PIXELS,
-};
+// const RUNWAY_UNIT_ALONG = {
+//     x: RUNWAY_VECTOR.x / RUNWAY_LENGTH_PIXELS,
+//     y: RUNWAY_VECTOR.y / RUNWAY_LENGTH_PIXELS,
+// };
 
-const RUNWAY_UNIT_ACROSS = {
-    x: -RUNWAY_UNIT_ALONG.y,
-    y: RUNWAY_UNIT_ALONG.x,
-};
+// const RUNWAY_UNIT_ACROSS = {
+//     x: -RUNWAY_UNIT_ALONG.y,
+//     y: RUNWAY_UNIT_ALONG.x,
+// };
 
 const RUNWAY_MIDPOINT = {
     x: (RUNWAY10_PIXEL.x + RUNWAY28_PIXEL.x) / 2,
     y: (RUNWAY10_PIXEL.y + RUNWAY28_PIXEL.y) / 2,
 };
 
-function localToImagePixels(xLocal: number, yLocal: number) {
-    const alongScale = RUNWAY_LENGTH_PIXELS * 1.1;
-    const acrossScale = RUNWAY_LENGTH_PIXELS * 0.7;
-    const dx = xLocal * alongScale;
-    const dy = yLocal * acrossScale;
-    const imgX =
-        RUNWAY_MIDPOINT.x +
-        RUNWAY_UNIT_ALONG.x * dx +
-        RUNWAY_UNIT_ACROSS.x * dy;
-    const imgY =
-        RUNWAY_MIDPOINT.y +
-        RUNWAY_UNIT_ALONG.y * dx +
-        RUNWAY_UNIT_ACROSS.y * dy;
-    return { x: imgX, y: imgY };
-}
+// function localToImagePixels(xLocal: number, yLocal: number) {
+//     const alongScale = RUNWAY_LENGTH_PIXELS * 1.1;
+//     const acrossScale = RUNWAY_LENGTH_PIXELS * 0.7;
+//     const dx = xLocal * alongScale;
+//     const dy = yLocal * acrossScale;
+//     const imgX =
+//         RUNWAY_MIDPOINT.x +
+//         RUNWAY_UNIT_ALONG.x * dx +
+//         RUNWAY_UNIT_ACROSS.x * dy;
+//     const imgY =
+//         RUNWAY_MIDPOINT.y +
+//         RUNWAY_UNIT_ALONG.y * dx +
+//         RUNWAY_UNIT_ACROSS.y * dy;
+//     return { x: imgX, y: imgY };
+// }
+
 
 export function MapOverlay({ planes, anomalies, onPlaneClick }: MapOverlayProps) {
     const containerRef = useRef<HTMLDivElement>(null);
@@ -186,97 +187,155 @@ export function MapOverlay({ planes, anomalies, onPlaneClick }: MapOverlayProps)
         );
 
 
-        // Pattern (Simplified rendering for React - can duplicate logic or simplify)
-        // For brevity, let's implement the pattern logic as well since it's key visual.
-        const renderPatternSide = (sideMultiplier: number, labelText: string) => {
-            const alongExtend = RUNWAY_LENGTH_PIXELS * 0.5;
-            const offset = RUNWAY_LENGTH_PIXELS * 0.7;
-            const a = {
-                x: start.x - RUNWAY_UNIT_ALONG.x * alongExtend,
-                y: start.y - RUNWAY_UNIT_ALONG.y * alongExtend,
-            };
-            const b = {
-                x: end.x + RUNWAY_UNIT_ALONG.x * alongExtend,
-                y: end.y + RUNWAY_UNIT_ALONG.y * alongExtend,
-            };
-            const c = {
-                x: b.x + RUNWAY_UNIT_ACROSS.x * offset * sideMultiplier,
-                y: b.y + RUNWAY_UNIT_ACROSS.y * offset * sideMultiplier,
-            };
-            const d = {
-                x: a.x + RUNWAY_UNIT_ACROSS.x * offset * sideMultiplier,
-                y: a.y + RUNWAY_UNIT_ACROSS.y * offset * sideMultiplier,
-            };
+        // Pattern Construction (User Requested: Single Rectangle, Left of Runway)
+        // Runway 10 (Top) -> Runway 28 (Bottom)
+        // Width = Half Runway Length
+        // Orientation: Top=Crosswind, Left=Downwind, Bottom=Base
 
-            const segments = [
-                [a, b],
-                [b, c],
-                [c, d],
-                [d, a],
-            ];
+        const patternWidth = RUNWAY_LENGTH_PIXELS * 0.5;
 
-            segments.forEach((pair, idx) => {
-                const p1 = pair[0];
-                const p2 = pair[1];
-                const x1 = transform.offsetX + p1.x * transform.scale;
-                const y1 = transform.offsetY + p1.y * transform.scale;
-                const x2 = transform.offsetX + p2.x * transform.scale;
-                const y2 = transform.offsetY + p2.y * transform.scale;
-                const dx = x2 - x1;
-                const dy = y2 - y1;
-                const len = Math.hypot(dx, dy);
-                const ang = (Math.atan2(dy, dx) * 180) / Math.PI;
-                const cx = (x1 + x2) / 2;
-                const cy = (y1 + y2) / 2;
+        // Vectors
+        // Runway Vector P1 (Top/10) -> P2 (Bottom/28)
+        const p1 = RUNWAY10_PIXEL;
+        const p2 = RUNWAY28_PIXEL;
 
-                elements.push(
-                    <div
-                        key={`pattern-${labelText}-${idx}`}
-                        className="pattern-edge"
-                        style={{
-                            width: len,
-                            left: cx,
-                            top: cy,
-                            transform: `translate(-50%, -50%) rotate(${ang}deg)`,
-                        }}
-                    />
-                );
-            });
+        // Unit vector Left (Perpendicular to P1->P2)
+        // Logic: If P1->P2 is roughly (0, 1), Left is (1, 0)? No, Left of screen is -x.
+        // Standard perp: (x, y) -> (-y, x) is Left rotation?
+        // Let's verify: (0, 1) -> (-1, 0). Yes.
 
-            // Label
-            const center = [a, b, c, d].reduce(
-                (acc, p) => ({ x: acc.x + p.x / 4, y: acc.y + p.y / 4 }),
-                { x: 0, y: 0 }
-            );
-            const labelX = transform.offsetX + center.x * transform.scale;
-            const labelY = transform.offsetY + center.y * transform.scale - 14 * sideMultiplier;
+        const vecDx = p2.x - p1.x;
+        const vecDy = p2.y - p1.y;
+        const len = Math.hypot(vecDx, vecDy);
+        const ux = vecDx / len;
+        const uy = vecDy / len;
+
+        const perpX = -uy; // Pointing Left
+        const perpY = ux;
+
+        // Corners
+        // P3 = P1 + Width * Left (Top-Left)
+        const p3 = {
+            x: p1.x + perpX * patternWidth,
+            y: p1.y + perpY * patternWidth
+        };
+
+        // P4 = P2 + Width * Left (Bottom-Left)
+        const p4 = {
+            x: p2.x + perpX * patternWidth,
+            y: p2.y + perpY * patternWidth
+        };
+
+        // Segments to render (Dotted Lines)
+        // 1. Crosswind (Top: P1 -> P3)
+        // 2. Downwind (Left: P3 -> P4)
+        // 3. Base (Bottom: P4 -> P2)
+
+        const patternSegments = [
+            { start: p1, end: p3, label: "CROSSWIND" },
+            { start: p3, end: p4, label: "DOWNWIND" },
+            { start: p4, end: p2, label: "BASE" }
+        ];
+
+        patternSegments.forEach((seg, idx) => {
+            const x1 = transform.offsetX + seg.start.x * transform.scale;
+            const y1 = transform.offsetY + seg.start.y * transform.scale;
+            const x2 = transform.offsetX + seg.end.x * transform.scale;
+            const y2 = transform.offsetY + seg.end.y * transform.scale;
+
+            const segDx = x2 - x1;
+            const segDy = y2 - y1;
+            const segLen = Math.hypot(segDx, segDy);
+            const segAng = (Math.atan2(segDy, segDx) * 180) / Math.PI;
+            const cx = (x1 + x2) / 2;
+            const cy = (y1 + y2) / 2;
 
             elements.push(
                 <div
-                    key={`pattern-label-${labelText}`}
+                    key={`pattern-seg-${idx}`}
+                    className="radar-ring" // Re-using radar-ring style for width/color match
+                    style={{
+                        position: 'absolute',
+                        width: segLen,
+                        height: 0,
+                        left: cx,
+                        top: cy,
+                        transform: `translate(-50%, -50%) rotate(${segAng}deg)`,
+                        border: 'none',
+                        borderTop: '2px dashed rgba(255, 255, 255, 0.4)', // Thicker to match rings (2px)
+                        borderRadius: 0,
+                    }}
+                />
+            );
+
+            // Label
+            elements.push(
+                <div
+                    key={`pattern-lbl-${idx}`}
                     className="pattern-label"
                     style={{
-                        left: labelX,
-                        top: labelY,
-                        transform: "translate(-50%, -50%)",
+                        left: cx,
+                        top: cy,
+                        transform: 'translate(-50%, -50%)',
+                        color: 'rgba(255,255,255,0.7)',
+                        fontSize: '10px',
+                        textShadow: '0 0 2px black'
                     }}
                 >
-                    {labelText}
+                    {seg.label}
                 </div>
             );
-        };
+        });
 
-        renderPatternSide(1, "LEFT TRAFFIC");
-        renderPatternSide(-1, "RIGHT TRAFFIC");
+        // Planes Rendering
+        // Coordinate System:
+        // Engine Y: +0.5 (Top/Runway10) to -0.5 (Bottom/Runway28).
+        // Engine X: -0.5 (Left/Crosswind) to 0.5 (Right/BaseStart?).
+        // Map Projection:
+        // Center = RUNWAY_MIDPOINT
+        // Vector Up (Y+) = RUNWAY10_PIXEL - Midpoint
+        // Vector Left (X-) = perp * (RUNWAY_LENGTH_PIXELS * 0.5) ??
+        // No, let's use the unit vectors directly.
 
+        // U_UP = Vector from Mid to P1 (Top).
+        const uUp = { x: p1.x - ((p1.x + p2.x) / 2), y: p1.y - ((p1.y + p2.y) / 2) };
+        // U_RIGHT = Vector perpendicular pointing Right.
+        // Left was perp (-uy, ux). Right is (uy, -ux).
+        // const uRight = { x: uy * (RUNWAY_LENGTH_PIXELS), y: -ux * (RUNWAY_LENGTH_PIXELS) };
+        // Wait, length of uUp is Half Runway Length.
+        // Engine X=0.5 should be Half Runway Length to the Right.
+        // So scale U_RIGHT to be full runway length??
+        // Pattern Width was 0.5 * Length.
+        // So Engine X=0.5 -> 0.5 * Length.
+        // So just normalize U_RIGHT to Length, then multiply by plane.x.
 
-        // Planes
+        // Simpler:
+        // Pos = Mid + (plane.y * 2) * uUp + (plane.x) * (UnitVectorRight * Length)
+        // Check:
+        // plane.y = 0.5 -> Mid + 1.0 * uUp = Mid + (P1 - Mid) = P1. Correct.
+        // plane.y = -0.5 -> Mid - 1.0 * uUp = Mid - (P1 - Mid) = Mid + (Mid - P1) = Mid + (P2 - Mid) = P2. Correct.
+        // plane.x = -0.5 -> Mid + (-0.5 * Len * UnitRight) = Mid + 0.5 * Len * UnitLeft. Correct (Pattern Edge).
+
         planes.forEach(plane => {
-            const imagePos = localToImagePixels(plane.x, plane.y);
-            const px = transform.offsetX + imagePos.x * transform.scale;
-            const py = transform.offsetY + imagePos.y * transform.scale;
+            // 1. Calculate Image Pixel Position
+            // Scale factors
+            const scaleY = 2.0; // Because y=0.5 is full reach of uUp
+            const vecY = { x: uUp.x * scaleY, y: uUp.y * scaleY }; // Full Runway Length Vector pointing Up
 
-            const isCritical = anomalies.some((a) => a.involvedCallsigns.includes(plane.callsign));
+            // Vector Right (Normal * Length)
+            // Left was (-uy, ux). Right is (uy, -ux).
+            const vecX = { x: uy * RUNWAY_LENGTH_PIXELS, y: -ux * RUNWAY_LENGTH_PIXELS };
+
+            const mid = RUNWAY_MIDPOINT;
+
+            const imgX = mid.x + (plane.x * vecX.x) + (plane.y * vecY.x);
+            const imgY = mid.y + (plane.x * vecX.y) + (plane.y * vecY.y);
+
+            const px = transform.offsetX + imgX * transform.scale;
+            const py = transform.offsetY + imgY * transform.scale;
+
+            // Anomaly Check
+            const isCritical = anomalies && anomalies.some((a) => a.involvedCallsigns.includes(plane.callsign));
 
             elements.push(
                 <div
@@ -285,14 +344,17 @@ export function MapOverlay({ planes, anomalies, onPlaneClick }: MapOverlayProps)
                     style={{ left: px, top: py }}
                     onClick={(e) => { e.stopPropagation(); onPlaneClick(plane.id); }}
                 >
+                    {/* Rotate icon based on heading. Map Up is 0, but Runway is tilted. 
+                        We should rotate relative to screen.
+                        Heading 0 (North) -> Screen Up.
+                        Heading 270 (West) -> Screen Left.
+                        So standard rotation is fine.
+                    */}
                     <div className="plane-icon" style={{ transform: `rotate(${plane.heading}deg)` }} />
                     <div className="plane-leader" />
                     <div className="plane-label">
                         <div className="plane-label-line1">
                             {plane.callsign}
-                            <span className="plane-badge">
-                                {plane.intention === "touch-and-go" ? "T&G" : "FULL"}
-                            </span>
                         </div>
                         <div className="plane-label-line2">
                             {Math.round(plane.altitude)} ft

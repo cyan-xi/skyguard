@@ -12,6 +12,7 @@ import { TranscriptPanel } from "./components/TranscriptPanel";
 import { MapOverlay } from "./components/MapOverlay";
 import { SuggestedMessagePanel } from "./components/SuggestedMessagePanel";
 import { AnomaliesPanel } from "./components/AnomaliesPanel";
+import { ActiveAircraftPanel } from "./components/ActiveAircraftPanel";
 
 function pad2(value: number): string {
   return value.toString().padStart(2, "0");
@@ -154,9 +155,15 @@ function App() {
       </div>
       <div id="app">
         <div className="column transcript-column">
-          <div className="panel-header">Transcript – Radio Communications</div>
-          <div id="transcript-list" className="panel-content transcript-list">
-            <TranscriptPanel messages={transcript} />
+          <div className="left-panel-top">
+            <div className="panel-header">Active Aircraft</div>
+            <ActiveAircraftPanel planes={planes} />
+          </div>
+          <div className="left-panel-bottom">
+            <div className="panel-header">Transcript – Radio Communications</div>
+            <div id="transcript-list" className="panel-content transcript-list">
+              <TranscriptPanel messages={transcript} />
+            </div>
           </div>
         </div>
         <div className="column map-column">
