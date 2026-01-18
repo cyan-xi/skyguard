@@ -1,4 +1,5 @@
 const crypto = require("crypto");
+const { Brain } = require("./brain");
 
 const BASE_LAT = 40.6413;
 const BASE_LON = -73.7781;
@@ -43,6 +44,8 @@ class Simulation {
     this.historyRows = [];
     this._transcriptCounter = 0;
     this._nextArrivalTimeSec = 20;
+    this.brain = new Brain({ autoMode: false });
+    this._pendingInstruction = null;
     this._initAircraft(this.maxAircraft);
   }
 
@@ -66,7 +69,13 @@ class Simulation {
         heightNm,
         direction
       );
-      const altitudeFt = model.patternAltitudeFt;
+
+      // Randomize altitude and speed to create conflicts for brain
+      const altitudeVariation = (Math.random() - 0.5) * 1000; // ±500 ft
+      const altitudeFt = model.patternAltitudeFt + altitudeVariation;
+      const speedVariation = (Math.random() - 0.5) * 40; // ±20 kt
+      const initialSpeed = Math.max(80, model.patternSpeedKt + speedVariation);
+
       const { lat, lon } = nmToLatLon(xNm, yNm);
       const callsign = callsigns[i % callsigns.length];
       const id = this._nextAircraftId();
@@ -77,14 +86,14 @@ class Simulation {
         lat,
         lon,
         altitudeFt,
-        groundSpeedKt: model.patternSpeedKt,
+        groundSpeedKt: initialSpeed,
         headingDeg,
         verticalSpeedFpm: 0,
         phase: "pattern",
         routeSegment: "pattern",
         assignedAltitudeFt: altitudeFt,
         assignedHeadingDeg: headingDeg,
-        assignedSpeedKt: model.patternSpeedKt,
+        assignedSpeedKt: initialSpeed,
         lastInstructionId: undefined,
         clearanceStatus: "assigned",
         squawk: String(1000 + this._aircraftCounter),
@@ -95,7 +104,7 @@ class Simulation {
         _direction: direction,
         _mode: "pattern",
         _targetAngleRad: 0,
-        _patternSpeedKt: model.patternSpeedKt,
+        _patternSpeedKt: initialSpeed,
         _trackPosNm: trackPosNm,
         _trackLengthNm: perimeterNm,
         _arrivalTargetXNm: 0,
@@ -420,6 +429,108 @@ class Simulation {
     }
   }
 
+  /**
+   * Execute an instruction on an aircraft
+   */
+  executeInstruction(instruction) {
+    const aircraft = this.aircraft.find(a => a.id === instruction.aircraftId);
+    if (!aircraft) {
+      console.warn(`[Simulation] Aircraft ${instruction.aircraftId} not found`);
+      return false;
+    }
+
+    // Update assigned values based on instruction type
+    switch (instruction.type) {
+      case 'SPEED_CHANGE':
+        aircraft.assignedSpeedKt = instruction.params.targetSpeedKt;
+        break;
+      case 'HEADING_CHANGE':
+        aircraft.assignedHeadingDeg = instruction.params.targetHeadingDeg;
+        break;
+      case 'ALTITUDE_CHANGE':
+        aircraft.assignedAltitudeFt = instruction.params.targetAltitudeFt;
+        break;
+      default:
+        console.warn(`[Simulation] Unknown instruction type: ${instruction.type}`);
+        return false;
+    }
+
+    // Update instruction status
+    instruction.status = 'executing';
+    instruction.executedAt = this.simTimeSec;
+    aircraft.lastInstructionId = instruction.id;
+
+    // Add to transcript
+    this._addTranscript(
+      'system',
+      this.brain.formatAsSuggestion(instruction),
+      instruction.callsign
+    );
+
+    console.log(`[Simulation] Executed instruction: ${instruction.type} for ${instruction.callsign}`);
+    return true;
+  }
+
+  /**
+   * Smoothly transition aircraft to their assigned values
+   */
+  _updateAssignedValues() {
+    for (const a of this.aircraft) {
+      // Speed transition: ±10 kt per second
+      if (a.assignedSpeedKt && Math.abs(a.groundSpeedKt - a.assignedSpeedKt) > 1) {
+        const speedDiff = a.assignedSpeedKt - a.groundSpeedKt;
+        const speedChange = Math.sign(speedDiff) * Math.min(Math.abs(speedDiff), 10 * this.dt);
+        a.groundSpeedKt += speedChange;
+        a._patternSpeedKt = a.groundSpeedKt; // Update internal speed too
+      }
+
+      // Heading transition: ±3 degrees per second
+      if (a.assignedHeadingDeg !== undefined) {
+        let headingDiff = a.assignedHeadingDeg - a.headingDeg;
+        // Normalize to [-180, 180]
+        if (headingDiff > 180) headingDiff -= 360;
+        if (headingDiff < -180) headingDiff += 360;
+
+        if (Math.abs(headingDiff) > 1) {
+          const headingChange = Math.sign(headingDiff) * Math.min(Math.abs(headingDiff), 3 * this.dt);
+          a.headingDeg = (a.headingDeg + headingChange + 360) % 360;
+        }
+      }
+
+      // Altitude transition: ±500 ft per minute
+      if (a.assignedAltitudeFt && Math.abs(a.altitudeFt - a.assignedAltitudeFt) > 50) {
+        const altDiff = a.assignedAltitudeFt - a.altitudeFt;
+        const altChange = Math.sign(altDiff) * Math.min(Math.abs(altDiff), (500 / 60) * this.dt);
+        a.altitudeFt += altChange;
+        a.verticalSpeedFpm = (altChange / this.dt) * 60;
+      }
+    }
+  }
+
+  /**
+   * Broadcast pending instruction (called from client in manual mode)
+   */
+  broadcastPendingInstruction() {
+    if (this._pendingInstruction) {
+      this.executeInstruction(this._pendingInstruction);
+      this._pendingInstruction = null;
+      return true;
+    }
+    return false;
+  }
+
+  /**
+   * Reject pending instruction (called from client in manual mode)
+   */
+  rejectPendingInstruction() {
+    if (this._pendingInstruction) {
+      this._pendingInstruction.status = 'rejected';
+      this._pendingInstruction = null;
+      return true;
+    }
+    return false;
+  }
+
   step() {
     this.simTimeSec += this.dt;
     this._updateAircraftPositions();
@@ -430,10 +541,42 @@ class Simulation {
     ) {
       this._spawnArrival();
     }
+
+    // Brain conflict detection and instruction generation
+    const conflicts = this.brain.analyzeAirspace(this.aircraft, this.simTimeSec);
+    let suggestedMessage = '';
+
+    if (conflicts.length > 0) {
+      const instructions = this.brain.generateInstructions(conflicts, this.simTimeSec);
+
+      if (instructions.length > 0) {
+        if (this.brain.autoMode) {
+          // AUTOMATIC MODE: Execute immediately
+          for (const instr of instructions) {
+            this.executeInstruction(instr);
+          }
+          suggestedMessage = this.brain.formatAsSuggestion(instructions[0]);
+        } else {
+          // MANUAL MODE: Send as suggestion to UI
+          suggestedMessage = this.brain.formatAsSuggestion(instructions[0]);
+          this._pendingInstruction = instructions[0];
+        }
+      }
+    }
+
+    // Smooth transitions to assigned values
+    this._updateAssignedValues();
+
+    // Legacy anomaly detection for compatibility
     const anomalies = this._detectAnomalies();
     this._updateTranscriptForAnomalies(anomalies);
     this._appendCsvRows(anomalies);
-    const suggestedMessage = this._generateSuggestedMessage(anomalies);
+
+    // Use brain suggestion if available, otherwise use legacy suggestion
+    if (!suggestedMessage) {
+      suggestedMessage = this._generateSuggestedMessage(anomalies);
+    }
+
     return {
       simId: this.id,
       simTimeSec: this.simTimeSec,
@@ -454,11 +597,22 @@ class Simulation {
         assignedSpeedKt: a.assignedSpeedKt,
         lastInstructionId: a.lastInstructionId,
         clearanceStatus: a.clearanceStatus,
-        squawk: a.squawk
+        squawk: a.squawk,
+        // Expose NM coordinates for client positioning
+        xNm: a._xNm,
+        yNm: a._yNm
       })),
       anomalies,
+      conflicts: conflicts.map(c => ({
+        id: c.id,
+        callsigns: c.callsigns,
+        horizontalSep: c.horizontalSep,
+        verticalSep: c.verticalSep,
+        severity: c.severity
+      })),
       transcript: this.transcript.slice(-30),
-      suggestedMessage
+      suggestedMessage,
+      brainMode: this.brain.autoMode ? 'automatic' : 'manual'
     };
   }
 

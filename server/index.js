@@ -35,6 +35,99 @@ function createServer() {
       return;
     }
 
+    // POST /simulations/:id/brain-mode - Toggle brain auto/manual mode
+    if (parsed.pathname && parsed.pathname.match(/^\/simulations\/[^\/]+\/brain-mode$/) && req.method === "POST") {
+      const parts = parsed.pathname.split("/");
+      const simId = parts[2];
+      const sim = simulations.get(simId);
+      if (!sim) {
+        res.writeHead(404, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "simulation not found" }));
+        return;
+      }
+
+      let body = '';
+      req.on('data', chunk => { body += chunk.toString(); });
+      req.on('end', () => {
+        try {
+          const data = JSON.parse(body);
+          sim.brain.setAutoMode(data.autoMode === true);
+          res.writeHead(200, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ success: true, autoMode: sim.brain.autoMode }));
+        } catch (err) {
+          res.writeHead(400, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ error: "invalid JSON" }));
+        }
+      });
+      return;
+    }
+
+    // POST /simulations/:id/broadcast - Execute pending instruction
+    if (parsed.pathname && parsed.pathname.match(/^\/simulations\/[^\/]+\/broadcast$/) && req.method === "POST") {
+      const parts = parsed.pathname.split("/");
+      const simId = parts[2];
+      const sim = simulations.get(simId);
+      if (!sim) {
+        res.writeHead(404, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "simulation not found" }));
+        return;
+      }
+
+      const success = sim.broadcastPendingInstruction();
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success }));
+      return;
+    }
+
+    // POST /simulations/:id/reject - Reject pending instruction
+    if (parsed.pathname && parsed.pathname.match(/^\/simulations\/[^\/]+\/reject$/) && req.method === "POST") {
+      const parts = parsed.pathname.split("/");
+      const simId = parts[2];
+      const sim = simulations.get(simId);
+      if (!sim) {
+        res.writeHead(404, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "simulation not found" }));
+        return;
+      }
+
+      const success = sim.rejectPendingInstruction();
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ success }));
+      return;
+    }
+
+    // GET /simulations/:id/conflicts - Get current conflicts
+    if (parsed.pathname && parsed.pathname.match(/^\/simulations\/[^\/]+\/conflicts$/) && req.method === "GET") {
+      const parts = parsed.pathname.split("/");
+      const simId = parts[2];
+      const sim = simulations.get(simId);
+      if (!sim) {
+        res.writeHead(404, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "simulation not found" }));
+        return;
+      }
+
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ conflicts: sim.brain.getCurrentConflicts() }));
+      return;
+    }
+
+    // GET /simulations/:id/instructions - Get instruction history
+    if (parsed.pathname && parsed.pathname.match(/^\/simulations\/[^\/]+\/instructions$/) && req.method === "GET") {
+      const parts = parsed.pathname.split("/");
+      const simId = parts[2];
+      const sim = simulations.get(simId);
+      if (!sim) {
+        res.writeHead(404, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "simulation not found" }));
+        return;
+      }
+
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ instructions: sim.brain.getInstructionHistory(50) }));
+      return;
+    }
+
     res.writeHead(404, { "Content-Type": "application/json" });
     res.end(JSON.stringify({ error: "not found" }));
   });
@@ -63,7 +156,7 @@ function createServer() {
 
     const sim = new Simulation({
       randomness: RANDOMNESS,
-      numAircraft: 8
+      numAircraft: 3
     });
     simulations.set(sim.id, sim);
 
@@ -89,7 +182,7 @@ function createServer() {
       simulations.delete(sim.id);
     });
 
-    socket.on("data", () => {});
+    socket.on("data", () => { });
   });
 
   return server;
