@@ -40,26 +40,37 @@ function App() {
 
   // Simulation Loop - Plane Movement (every 2s)
   useEffect(() => {
-    const interval = setInterval(() => {
-      setPlanes((currentPlanes) => {
-        const nextPlanes = updatePlanePositionsLogic(currentPlanes);
-        // After moving, recompute anomalies
-        const nextAnomalies = computeAnomalies(nextPlanes);
-        setAnomalies(nextAnomalies);
+    const timer = setTimeout(() => {
+      // Logic
+      const { planes: nextPlanes, messages: newMessages } = updatePlanePositionsLogic(planes);
 
-        // If no suggestion, pick one
-        setSuggestedMessage((prevSuggestion) => {
-          if (!prevSuggestion) {
-            return chooseSuggestion(nextPlanes, nextAnomalies);
-          }
-          return prevSuggestion;
+      setPlanes(nextPlanes);
+
+      if (newMessages.length > 0) {
+        setTranscript(prev => {
+          // Filter duplicates just in case
+          const existingIds = new Set(prev.map(m => m.id));
+          const uniqueNew = newMessages.filter(m => !existingIds.has(m.id));
+          return [...prev, ...uniqueNew];
         });
+      }
 
-        return nextPlanes;
+      // After moving, recompute anomalies
+      const nextAnomalies = computeAnomalies(nextPlanes);
+      setAnomalies(nextAnomalies);
+
+      // If no suggestion, pick one
+      setSuggestedMessage((prevSuggestion) => {
+        if (!prevSuggestion) {
+          return chooseSuggestion(nextPlanes, nextAnomalies);
+        }
+        return prevSuggestion;
       });
+
     }, 2000);
-    return () => clearInterval(interval);
-  }, []);
+
+    return () => clearTimeout(timer);
+  }, [planes]);
 
   // Clock
   const [now, setNow] = useState(() => new Date());

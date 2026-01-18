@@ -97,8 +97,8 @@ export function createInitialPlanes(): Plane[] {
 
 function createPlaneOnDownwind(): Plane {
     return {
-        id: "TEST01",
-        callsign: "TEST01",
+        id: "N11111",
+        callsign: "N11111",
         intention: "full-stop",
         x: -0.5,
         y: 0.0,
@@ -137,8 +137,8 @@ function createTransitPlane(): Plane {
     const mapHeading = (90 - deg + 360) % 360;
 
     return {
-        id: "INBOUND02",
-        callsign: "INBOUND02",
+        id: "N22222",
+        callsign: "N22222",
         intention: "pattern-entry",
         x: startX,
         y: startY,
@@ -157,11 +157,11 @@ function createTransitPlane(): Plane {
     };
 }
 
-export function updatePlanePositionsLogic(currentPlanes: Plane[]): Plane[] {
+// Logic to follow rectangle and generate messages
+export function updatePlanePositionsLogic(currentPlanes: Plane[]): { planes: Plane[], messages: TranscriptEntry[] } {
     const step = 0.04; // Speed per tick
-
-    // Filter out despawned planes (return null/undefined filtering usually done by map, but here we rebuild array)
     const nextPlanes: Plane[] = [];
+    const newMessages: TranscriptEntry[] = [];
 
     currentPlanes.forEach(p => {
         let nx = p.x;
@@ -170,13 +170,15 @@ export function updatePlanePositionsLogic(currentPlanes: Plane[]): Plane[] {
         let newHeading = p.heading;
         let flightMode = p.flightMode;
 
+        let legChanged = false;
+        // let prevLegForMsg = p.patternLeg;
+
         // --- TRANSIT LOGIC ---
         if (flightMode === "transit") {
             // Target: Downwind Entry (-0.5, 0.5)
             const targetX = -0.5;
             const targetY = 0.5;
 
-            // Move towards target
             const dx = targetX - nx;
             const dy = targetY - ny;
             const dist = Math.hypot(dx, dy);
@@ -187,24 +189,24 @@ export function updatePlanePositionsLogic(currentPlanes: Plane[]): Plane[] {
                 ny = targetY;
                 flightMode = "pattern";
                 nextLeg = "downwind";
-                newHeading = 180; // Turn to Downwind flows
+                newHeading = 180;
+
+                // ENTRY MESSAGE
+                newMessages.push({
+                    id: `msg-${Date.now()}-${p.callsign}`,
+                    timestamp: new Date().toISOString(),
+                    from: p.callsign, // Pilot
+                    callsign: p.callsign,
+                    message: `Skyguard Tower, ${p.callsign}, entering left downwind runway 28.`
+                });
             } else {
-                // Keep moving
-                const moveX = (dx / dist) * step;
-                const moveY = (dy / dist) * step;
-                nx += moveX;
-                ny += moveY;
-                // Heading remains constant transit heading
+                nx += (dx / dist) * step;
+                ny += (dy / dist) * step;
+                // Periodic inbound calls? Maybe once.
+                // Doing just entry for now to keep it clean.
             }
 
-            nextPlanes.push({
-                ...p,
-                x: nx,
-                y: ny,
-                flightMode,
-                patternLeg: nextLeg as any,
-                heading: newHeading
-            });
+            nextPlanes.push({ ...p, x: nx, y: ny, flightMode, patternLeg: nextLeg as any, heading: newHeading });
             return;
         }
 
@@ -213,63 +215,75 @@ export function updatePlanePositionsLogic(currentPlanes: Plane[]): Plane[] {
         let despawn = false;
 
         if (p.patternLeg === "crosswind") {
-            // Y=0.5. Right(0) to Left(-0.5). Heading 270.
             if (ny < 0.5) ny = 0.5;
             nx -= step;
             newHeading = 270;
             if (nx <= -0.5) {
                 nx = -0.5;
                 nextLeg = "downwind";
+                legChanged = true;
             }
         }
         else if (p.patternLeg === "downwind") {
-            // X=-0.5. Top(0.5) to Bot(-0.5). Heading 180.
             if (nx > -0.5) nx = -0.5;
             ny -= step;
             newHeading = 180;
             if (ny <= -0.5) {
                 ny = -0.5;
                 nextLeg = "base";
+                legChanged = true;
             }
         }
         else if (p.patternLeg === "base") {
-            // Y=-0.5. Left(-0.5) to Right(0). Heading 90.
             if (ny > -0.5) ny = -0.5;
             nx += step;
             newHeading = 90;
             if (nx >= 0.0) {
                 nx = 0.0;
                 nextLeg = "final";
+                legChanged = true;
             }
         }
         else if (p.patternLeg === "final" || p.patternLeg === "upwind") {
-            // Leg: Right/Runway (X=0). Moves Bot(-0.5) to Top(0.5).
-            // Heading: 0.
-            // DESPAWN CHECK: Midpoint (Y=0.0)
-
             if (nx < 0) nx = 0;
             ny += step;
             newHeading = 0;
 
             if (ny >= 0.0) {
-                // Despawn!
                 despawn = true;
+                // DESPAWN/LANDING Message (Optional)
+                // newMessages.push(...)
+            }
+        }
+
+        // --- MESSAGE GENERATION ---
+        if (legChanged) {
+            let msgText = "";
+            if (nextLeg === "downwind") {
+                msgText = `turning left downwind runway 28.`;
+            } else if (nextLeg === "base") {
+                msgText = `turning left base runway 28.`;
+            } else if (nextLeg === "final") {
+                msgText = `turning final runway 28, full stop.`;
+            } // Crosswind? usually taken after upwind.
+
+            if (msgText) {
+                newMessages.push({
+                    id: `msg-${Date.now()}-${p.callsign}`,
+                    timestamp: new Date().toISOString(),
+                    from: p.callsign,
+                    callsign: p.callsign,
+                    message: `${p.callsign}, ${msgText}`
+                });
             }
         }
 
         if (!despawn) {
-            nextPlanes.push({
-                ...p,
-                x: nx,
-                y: ny,
-                flightMode,
-                patternLeg: nextLeg as any,
-                heading: newHeading
-            });
+            nextPlanes.push({ ...p, x: nx, y: ny, flightMode, patternLeg: nextLeg as any, heading: newHeading });
         }
     });
 
-    return nextPlanes;
+    return { planes: nextPlanes, messages: newMessages };
 }
 
 // Stubs
