@@ -1,4 +1,5 @@
 import type { Plane, TranscriptEntry, Anomaly, SuggestedMessage, PatternLeg } from "./types";
+import { generateConflictSuggestion } from "./brain";
 
 // User Defined Geometry
 // Visual: Top=Crosswind, Left=Downwind, Bottom=Base, Right=Runway
@@ -106,18 +107,24 @@ export function createInitialPlanes(): Plane[] {
         const toCenterRad = Math.atan2(-startY, -startX);
         const heading = (90 - (toCenterRad * 180 / Math.PI) + 360) % 360;
 
+        // Randomize initial conditions for variety
+        const altitudeVariation = (Math.random() - 0.5) * 1000; // ±500 ft
+        const speedVariation = (Math.random() - 0.5) * 40; // ±20 kt
+        const baseAltitude = 2000 + altitudeVariation;
+        const baseSpeed = SPEED_KT + speedVariation;
+
         planes.push({
             id: `PLANE0${i + 1}`,
             callsign: `TEST0${i + 1}`,
             intention: "training",
             x: startX,
             y: startY,
-            altitude: 2000,
+            altitude: baseAltitude,
             heading: heading,
-            groundspeed: SPEED_KT,
+            groundspeed: baseSpeed,
             targetHeading: heading,
-            targetAltitude: 2000,
-            targetGroundspeed: SPEED_KT,
+            targetAltitude: baseAltitude,
+            targetGroundspeed: baseSpeed,
             turnRate: 0,
             climbRate: 0,
             acceleration: 0,
@@ -333,7 +340,10 @@ export function updatePlanePositionsLogic(currentPlanes: Plane[]): { planes: Pla
 // Stubs
 export function createInitialTranscript(): TranscriptEntry[] { return []; }
 export function computeAnomalies(_planes: Plane[]): Anomaly[] { return []; }
-export function chooseSuggestion(_planes: Plane[], _anomalies: Anomaly[]): SuggestedMessage | null { return null; }
+
+export function chooseSuggestion(planes: Plane[], _anomalies: Anomaly[]): SuggestedMessage | null {
+    return generateConflictSuggestion(planes);
+}
 // Helper to find closest point on rectangle (-0.5, -0.5) to (0.0, 0.5)
 // Returns {x, y, leg}
 function getClosestPointOnPerimeter(x: number, y: number): { x: number, y: number, leg: PatternLeg } {
@@ -385,6 +395,10 @@ export function performManeuver(plane: Plane, command: string, value: string | n
         const delta = Number(value);
         const currentTgt = newPlane.targetGroundspeed || newPlane.groundspeed;
         newPlane.targetGroundspeed = Math.max(50, Math.min(300, currentTgt + delta));
+    } else if (command === "ALTITUDE_CHANGE") {
+        const delta = Number(value);
+        const currentTgt = newPlane.targetAltitude || newPlane.altitude;
+        newPlane.targetAltitude = Math.max(500, Math.min(5000, currentTgt + delta));
     } else if (command === "DO_360") {
         newPlane.maneuverState = {
             previousMode: plane.flightMode,

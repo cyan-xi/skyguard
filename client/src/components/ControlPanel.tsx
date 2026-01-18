@@ -14,9 +14,6 @@ export function ControlPanel({ callsign, speed, onManeuver }: ControlPanelProps)
                 <button onClick={() => onManeuver("ENTER_PATH", 0)}>
                     Enter Pattern
                 </button>
-                <button onClick={() => onManeuver("SET_ALTITUDE", 1000)}>
-                    Hover Altitude (1000ft)
-                </button>
                 <button onClick={() => onManeuver("DO_360", 0)}>
                     Right 360
                 </button>
@@ -26,6 +23,14 @@ export function ControlPanel({ callsign, speed, onManeuver }: ControlPanelProps)
                     </button>
                     <button onClick={() => onManeuver("SPEED_CHANGE", -20)} title="Decrease Speed">
                         Spd -20
+                    </button>
+                </div>
+                <div className="altitude-controls" style={{ display: 'flex', gap: '4px' }}>
+                    <button onClick={() => onManeuver("ALTITUDE_CHANGE", 500)} title="Increase Altitude">
+                        Alt +500
+                    </button>
+                    <button onClick={() => onManeuver("ALTITUDE_CHANGE", -500)} title="Decrease Altitude">
+                        Alt -500
                     </button>
                 </div>
             </div>

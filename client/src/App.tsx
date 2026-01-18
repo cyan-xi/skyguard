@@ -27,6 +27,7 @@ function App() {
   const [anomalies, setAnomalies] = useState<Anomaly[]>([]);
   const [suggestedMessage, setSuggestedMessage] = useState<SuggestedMessage | null>(null);
   const [selectedPlaneIds, setSelectedPlaneIds] = useState<Set<string>>(new Set());
+  const [brainAutoMode, setBrainAutoMode] = useState(false);
 
   // Initialize
   useEffect(() => {
@@ -63,10 +64,39 @@ function App() {
 
       // If no suggestion, pick one
       setSuggestedMessage((prevSuggestion) => {
-        if (!prevSuggestion) {
-          return chooseSuggestion(nextPlanes, nextAnomalies);
+        const newSuggestion = prevSuggestion ? prevSuggestion : chooseSuggestion(nextPlanes, nextAnomalies);
+
+        // AUTO MODE: Automatically broadcast if enabled
+        if (newSuggestion && brainAutoMode) {
+          // Auto-broadcast the suggestion
+          const entry: TranscriptEntry = {
+            id: "tx-auto-" + Date.now(),
+            timestamp: new Date().toISOString(),
+            from: "SKYGUARD",
+            callsign: newSuggestion.targetCallsigns.length === 1 ? newSuggestion.targetCallsigns[0] : "",
+            message: "[AUTO] " + newSuggestion.message,
+          };
+          setTranscript(prev => [...prev, entry]);
+
+          // Execute the maneuver for the target plane
+          if (newSuggestion.message.includes("360")) {
+            const targetCallsign = newSuggestion.targetCallsigns[0];
+            const targetPlane = nextPlanes.find(p => p.callsign === targetCallsign);
+            if (targetPlane) {
+              setPlanes(currentPlanes => currentPlanes.map(p => {
+                if (p.id === targetPlane.id) {
+                  return performManeuver(p, "DO_360", 0);
+                }
+                return p;
+              }));
+            }
+          }
+
+          // Clear suggestion after auto-broadcast
+          return null;
         }
-        return prevSuggestion;
+
+        return newSuggestion;
       });
 
     }, 2000);
@@ -126,6 +156,8 @@ function App() {
 
   const handleBroadcast = () => {
     if (!suggestedMessage) return;
+
+    // Add to transcript
     const entry: TranscriptEntry = {
       id: "tx-" + Date.now(),
       timestamp: new Date().toISOString(),
@@ -134,7 +166,23 @@ function App() {
       message: suggestedMessage.message,
     };
     setTranscript(prev => [...prev, entry]);
-    setSuggestedMessage(chooseSuggestion(planes, anomalies)); // Immediate refresh
+
+    // Execute the maneuver for the target plane
+    if (suggestedMessage.message.includes("360")) {
+      const targetCallsign = suggestedMessage.targetCallsigns[0];
+      const targetPlane = planes.find(p => p.callsign === targetCallsign);
+      if (targetPlane) {
+        setPlanes(currentPlanes => currentPlanes.map(p => {
+          if (p.id === targetPlane.id) {
+            return performManeuver(p, "DO_360", 0);
+          }
+          return p;
+        }));
+      }
+    }
+
+    // Clear suggestion and get next one
+    setSuggestedMessage(chooseSuggestion(planes, anomalies));
   };
 
   const handleReject = () => {
@@ -160,6 +208,16 @@ function App() {
           <div className="top-subtitle">Automated Air Traffic Control</div>
         </div>
         <div className="top-bar-right">
+          <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+            <input
+              type="checkbox"
+              checked={brainAutoMode}
+              onChange={(e) => setBrainAutoMode(e.target.checked)}
+            />
+            <span style={{ fontSize: '14px', color: brainAutoMode ? '#4ade80' : '#fff' }}>
+              {brainAutoMode ? '🤖 AUTO MODE' : '👤 MANUAL MODE'}
+            </span>
+          </label>
           <div className="status-chip">SYSTEM ONLINE</div>
           <div id="utc-time" className="utc-time">
             {utcTime}
