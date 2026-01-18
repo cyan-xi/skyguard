@@ -29,8 +29,8 @@ function App() {
 
   const [suggestedMessage, setSuggestedMessage] = useState<SuggestedMessage | null>(null);
   const [selectedPlaneIds, setSelectedPlaneIds] = useState<Set<string>>(new Set());
-  const [brainAutoMode] = useState(false);
-  const [tickInterval, setTickInterval] = useState(2000); // ms per tick
+  const [brainAutoMode, setBrainAutoMode] = useState(false);
+  const [tickInterval, setTickInterval] = useState(1000); // ms per tick, default 1x
   const lastBroadcastTime = useRef<number>(0);
   const [scriptedMessages, setScriptedMessages] = useState<any[]>([]);
   const [currentMessageIndex, setCurrentMessageIndex] = useState(0);
@@ -124,13 +124,21 @@ function App() {
       if (timeSinceLast < MIN_DELAY) {
         // Wait for the remainder of the delay
         const timeout = setTimeout(() => {
-          handleBroadcast();
+          if (isScriptedMode) {
+            handleAcceptScriptedMessage();
+          } else {
+            handleBroadcast();
+          }
           lastBroadcastTime.current = Date.now();
         }, MIN_DELAY - timeSinceLast);
         return () => clearTimeout(timeout);
       } else {
         // Broadcast immediately
-        handleBroadcast();
+        if (isScriptedMode) {
+          handleAcceptScriptedMessage();
+        } else {
+          handleBroadcast();
+        }
         lastBroadcastTime.current = Date.now();
       }
     }
@@ -315,6 +323,17 @@ function App() {
       }
     }
 
+    // Trigger Voice Agent for Scripted Message
+    console.log("Triggering voice agent with (scripted):", currentMsg.aviationMessage);
+    fetch("http://localhost:4000/api/speak", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: currentMsg.aviationMessage })
+    })
+      .then(res => res.json())
+      .then(data => console.log("Voice Agent Response (Scripted):", data))
+      .catch(err => console.error("Failed to trigger voice agent (Scripted):", err));
+
     // Move to next message
     advanceToNextMessage();
   };
@@ -418,21 +437,35 @@ function App() {
               <span style={{ fontSize: '10px', color: '#aaa' }}>SIM SPEED:</span>
               <input
                 type="range"
-                min="500"
-                max="5000"
-                step="500"
-                value={tickInterval}
-                onChange={(e) => setTickInterval(Number(e.target.value))}
+                min="0.2"
+                max="5.0"
+                step="0.1"
+                value={1000 / tickInterval}
+                onChange={(e) => {
+                  const speed = Number(e.target.value);
+                  setTickInterval(1000 / speed);
+                }}
                 style={{ flex: 1, height: '4px' }}
               />
-              <span style={{ fontSize: '11px', color: '#4ade80', minWidth: '30px' }}>
+              <span style={{ fontSize: '11px', color: '#4ade80', minWidth: '35px', textAlign: 'right' }}>
                 {(1000 / tickInterval).toFixed(1)}x
               </span>
             </div>
           </div>
 
           <div className="panel suggested-panel" style={{ flex: '0 0 auto' }}>
-            <div className="panel-header">SkyGuard Suggested Message</div>
+            <div className="panel-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span>SkyGuard Suggested Message</span>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', cursor: 'pointer', background: brainAutoMode ? '#166534' : '#374151', padding: '2px 6px', borderRadius: '4px', transition: 'background 0.2s' }}>
+                <input
+                  type="checkbox"
+                  checked={brainAutoMode}
+                  onChange={(e) => setBrainAutoMode(e.target.checked)}
+                  style={{ cursor: 'pointer' }}
+                />
+                AUTO MODE
+              </label>
+            </div>
             <div style={{ padding: '0 4px' }}>
               <SuggestedMessagePanel
                 suggestedMessage={suggestedMessage}

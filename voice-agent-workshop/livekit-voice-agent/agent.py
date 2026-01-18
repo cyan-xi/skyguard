@@ -161,12 +161,17 @@ async def my_agent(ctx: agents.JobContext):
     # The session.run() usually handles this, but we aren't using an Agent.
     # We can just await a future that never completes, or let the room connection hold it.
     
-    # Actually, livekit-agents usually requires an Agent logic to 'run'. 
-    # But here we just want the HTTP server to drive it.
-    # We will simply await the HTTP server completion (which is infinite) 
-    # OR better: await ctx.wait_for_shutdown()
+    # Create a future to wait for shutdown
+    shutdown_process = asyncio.Future()
     
-    await ctx.wait_for_shutdown()
+    async def on_shutdown(reason):
+        if not shutdown_process.done():
+            shutdown_process.set_result(None)
+    
+    ctx.add_shutdown_callback(on_shutdown)
+    
+    # Wait until shutdown is triggered
+    await shutdown_process
 
 
 if __name__ == "__main__":
