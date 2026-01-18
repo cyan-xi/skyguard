@@ -1,41 +1,39 @@
-import type { TranscriptMessage } from "../types";
-import "./TranscriptPanel.css";
+import type { TranscriptEntry } from "../simulation/types";
 
 interface TranscriptPanelProps {
-  messages: TranscriptMessage[];
+  messages: TranscriptEntry[];
+}
+
+function formatTime(isoString: string) {
+  const date = new Date(isoString);
+  const h = String(date.getHours()).padStart(2, "0");
+  const m = String(date.getMinutes()).padStart(2, "0");
+  const s = String(date.getSeconds()).padStart(2, "0");
+  return h + ":" + m + ":" + s;
 }
 
 export function TranscriptPanel({ messages }: TranscriptPanelProps) {
   return (
-    <div className="transcript-panel">
-      <div className="transcript-list">
-        {messages.length === 0 && (
-          <div className="transcript-empty">Awaiting traffic...</div>
-        )}
-        {messages
-          .slice()
-          .reverse()
-          .map(msg => (
-            <div key={msg.id} className={`transcript-item transcript-${msg.role}`}>
-              <div className="transcript-meta">
-                <span className="transcript-time">
-                  {msg.atSimTimeSec.toFixed(1)}s
-                </span>
-                {msg.callsign && (
-                  <span className="transcript-callsign">{msg.callsign}</span>
-                )}
-                <span className="transcript-role-label">
-                  {msg.role === "tower"
-                    ? "TWR"
-                    : msg.role === "pilot"
-                    ? "PILOT"
-                    : "SYS"}
-                </span>
-              </div>
-              <div className="transcript-text">{msg.text}</div>
-            </div>
-          ))}
-      </div>
-    </div>
+    <>
+      {messages.map((entry) => {
+        let originClass = "";
+        if (entry.from === "ATC") {
+          originClass = "origin-atc";
+        } else if (entry.from === "SKYGUARD") {
+          originClass = "origin-skyguard";
+        } else {
+          originClass = "origin-pilot";
+        }
+
+        return (
+          <div key={entry.id} className="transcript-entry">
+            <div className="transcript-timestamp">{formatTime(entry.timestamp)}</div>
+            <div className={`transcript-origin ${originClass}`}>{entry.from}</div>
+            <div className="transcript-callsign">{entry.callsign}</div>
+            <div className="transcript-message">{entry.message}</div>
+          </div>
+        );
+      })}
+    </>
   );
 }

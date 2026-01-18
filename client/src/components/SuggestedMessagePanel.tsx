@@ -1,74 +1,58 @@
-import type { BroadcastDecision } from "../types";
-import "./SuggestedMessagePanel.css";
+import type { SuggestedMessage } from "../simulation/types";
 
 interface SuggestedMessagePanelProps {
-  suggestedMessage?: string;
-  decisionState: BroadcastDecision;
+  suggestedMessage: SuggestedMessage | null;
   onBroadcast: () => void;
   onReject: () => void;
-  simId?: string;
 }
 
 export function SuggestedMessagePanel({
   suggestedMessage,
-  decisionState,
   onBroadcast,
   onReject,
-  simId
 }: SuggestedMessagePanelProps) {
-  const disabled = !suggestedMessage || decisionState === "pending";
-
-  return (
-    <div className="suggested-panel">
-      <div className="panel-header">Suggested Transmission</div>
-      <div className="suggested-body">
-        <div className="suggested-message">
-          {suggestedMessage ? (
-            <span>{suggestedMessage}</span>
-          ) : (
-            <span className="suggested-placeholder">
-              Waiting for controller context...
-            </span>
-          )}
+  if (!suggestedMessage) {
+    return (
+      <>
+        <div id="suggested-meta" className="suggested-meta">
+          No active suggestion.
         </div>
-        <div className="suggested-status-row">
-          <span className={`suggested-status suggested-status-${decisionState}`}>
-            {decisionState === "idle" && "Standing by"}
-            {decisionState === "pending" && "Transmitting..."}
-            {decisionState === "broadcasted" && "Broadcasted"}
-            {decisionState === "rejected" && "Rejected"}
-          </span>
-        </div>
+        <div id="suggested-message-text" className="suggested-message-text"></div>
         <div className="suggested-actions">
-          <button
-            className="btn btn-broadcast"
-            disabled={disabled}
-            onClick={onBroadcast}
-          >
+          <button id="broadcast-btn" className="btn primary" disabled>
             Broadcast
           </button>
-          <button
-            className="btn btn-reject"
-            disabled={disabled}
-            onClick={onReject}
-          >
+          <button id="reject-btn" className="btn secondary" disabled>
             Reject
           </button>
         </div>
-        {simId && (
-          <div className="suggested-export-row">
-            <a
-              className="export-link"
-              href={`http://localhost:4000/simulations/${simId}/export`}
-              target="_blank"
-              rel="noreferrer"
-            >
-              Download run CSV
-            </a>
-          </div>
-        )}
+      </>
+    );
+  }
+
+  const targets = suggestedMessage.targetCallsigns.join(", ");
+  const headerText =
+    "[" +
+    suggestedMessage.priority.toUpperCase() +
+    "] " +
+    (targets ? "To: " + targets : "Pattern-wide advisory");
+
+  return (
+    <>
+      <div id="suggested-meta" className="suggested-meta">
+        {headerText}
       </div>
-    </div>
+      <div id="suggested-message-text" className="suggested-message-text">
+        {suggestedMessage.message}
+      </div>
+      <div className="suggested-actions">
+        <button id="broadcast-btn" className="btn primary" onClick={onBroadcast}>
+          Broadcast
+        </button>
+        <button id="reject-btn" className="btn secondary" onClick={onReject}>
+          Reject
+        </button>
+      </div>
+    </>
   );
 }
-
