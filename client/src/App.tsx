@@ -6,6 +6,7 @@ import {
   computeAnomalies,
   chooseSuggestion,
   updatePlanePositionsLogic,
+  performManeuver,
 } from "./simulation/engine";
 import type { Plane, TranscriptEntry, Anomaly, SuggestedMessage } from "./simulation/types";
 import { TranscriptPanel } from "./components/TranscriptPanel";
@@ -13,6 +14,7 @@ import { MapOverlay } from "./components/MapOverlay";
 import { SuggestedMessagePanel } from "./components/SuggestedMessagePanel";
 import { AnomaliesPanel } from "./components/AnomaliesPanel";
 import { ActiveAircraftPanel } from "./components/ActiveAircraftPanel";
+import { ControlPanel } from "./components/ControlPanel";
 
 function pad2(value: number): string {
   return value.toString().padStart(2, "0");
@@ -141,6 +143,15 @@ function App() {
   };
 
 
+  const handleManeuver = (planeId: string, command: string, value: string | number) => {
+    setPlanes(currentPlanes => currentPlanes.map(p => {
+      if (p.id === planeId) {
+        return performManeuver(p, command, value);
+      }
+      return p;
+    }));
+  };
+
   return (
     <>
       <div className="top-bar">
@@ -198,7 +209,19 @@ function App() {
           </div>
         </div>
         <div className="column right-column">
-          <div className="panel suggested-panel">
+          <div className="panel-header" style={{ marginBottom: '10px' }}>Manual Controls</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
+            {planes.map(p => (
+              <ControlPanel
+                key={p.id}
+                callsign={p.callsign}
+                speed={p.groundspeed}
+                onManeuver={(cmd, val) => handleManeuver(p.id, cmd, val)}
+              />
+            ))}
+          </div>
+
+          <div className="panel suggested-panel" style={{ marginTop: '20px' }}>
             <div className="panel-header">SkyGuard Suggested Message</div>
             <SuggestedMessagePanel
               suggestedMessage={suggestedMessage}

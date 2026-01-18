@@ -1,5 +1,5 @@
 export type PatternLeg = "upwind" | "crosswind" | "downwind" | "base" | "final" | "none";
-export type FlightMode = "pattern" | "transit" | "holding";
+export type FlightMode = "pattern" | "transit" | "holding" | "init" | "entering_path" | "orbit_360";
 
 export interface Plane {
     id: string;
@@ -26,6 +26,11 @@ export interface Plane {
     // AI Logic
     flightMode: FlightMode;
     patternLeg: PatternLeg;
+    maneuverState?: {
+        initialHeading?: number;
+        degreesTurned?: number;
+        previousMode?: FlightMode;
+    };
 
     lastUpdated: string;
 }

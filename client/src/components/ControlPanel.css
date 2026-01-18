@@ -1,0 +1,41 @@
+.control-panel {
+    background-color: #1e1e1e;
+    border: 1px solid #333;
+    padding: 10px;
+    margin-top: 10px;
+    border-radius: 4px;
+    color: #fff;
+}
+
+.control-header {
+    font-size: 12px;
+    font-weight: bold;
+    margin-bottom: 8px;
+    text-transform: uppercase;
+    color: #aaa;
+}
+
+.control-buttons {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.control-buttons button {
+    background-color: #333;
+    color: #eee;
+    border: 1px solid #555;
+    padding: 6px 12px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 12px;
+    transition: background-color 0.2s;
+}
+
+.control-buttons button:hover {
+    background-color: #444;
+}
+
+.control-buttons button:active {
+    background-color: #555;
+}

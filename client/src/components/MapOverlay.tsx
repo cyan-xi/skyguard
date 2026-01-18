@@ -357,7 +357,7 @@ export function MapOverlay({ planes, anomalies, onPlaneClick }: MapOverlayProps)
                             {plane.callsign}
                         </div>
                         <div className="plane-label-line2">
-                            {Math.round(plane.altitude)} ft
+                            {Math.round(plane.altitude)} ft / {Math.round(plane.groundspeed)} kt
                         </div>
                     </div>
                 </div>
