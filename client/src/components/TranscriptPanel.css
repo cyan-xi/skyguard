@@ -1,0 +1,81 @@
+.transcript-panel {
+  display: flex;
+  flex-direction: column;
+  background: radial-gradient(circle at top, #09121f 0, #02050b 55%, #000000 100%);
+  color: #e6f1ff;
+  border-right: 1px solid #1b2b3f;
+  padding: 0.75rem;
+  min-width: 260px;
+}
+
+.panel-header {
+  font-family: "Roboto Mono", system-ui, -apple-system, BlinkMacSystemFont,
+    sans-serif;
+  font-size: 0.8rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #6fb3ff;
+  margin-bottom: 0.5rem;
+}
+
+.transcript-list {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.transcript-empty {
+  font-size: 0.8rem;
+  color: #5c728e;
+}
+
+.transcript-item {
+  font-family: "Roboto Mono", monospace;
+  font-size: 0.78rem;
+  border-left: 2px solid transparent;
+  padding-left: 0.35rem;
+}
+
+.transcript-tower {
+  border-color: #6fb3ff;
+}
+
+.transcript-pilot {
+  border-color: #7aff7a;
+}
+
+.transcript-system {
+  border-color: #ffaa4d;
+}
+
+.transcript-meta {
+  display: flex;
+  gap: 0.4rem;
+  align-items: baseline;
+  color: #8092aa;
+}
+
+.transcript-time {
+  font-size: 0.72rem;
+}
+
+.transcript-callsign {
+  font-size: 0.74rem;
+  color: #e6f1ff;
+}
+
+.transcript-role-label {
+  font-size: 0.68rem;
+  padding: 0.05rem 0.3rem;
+  border-radius: 2px;
+  border: 1px solid #24364e;
+}
+
+.transcript-text {
+  margin-top: 0.05rem;
+  color: #dde9ff;
+  line-height: 1.3;
+}
+

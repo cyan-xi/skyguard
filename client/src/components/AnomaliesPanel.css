@@ -1,0 +1,81 @@
+.anomalies-panel {
+  display: flex;
+  flex-direction: column;
+  background: #050916;
+  padding: 0.75rem;
+  min-width: 260px;
+}
+
+.anomalies-list {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.anomalies-empty {
+  font-size: 0.8rem;
+  color: #73809d;
+}
+
+.anomaly-item {
+  border-radius: 4px;
+  padding: 0.5rem;
+  font-family: "Roboto Mono", monospace;
+  font-size: 0.76rem;
+  border: 1px solid #253554;
+  background: #050d1a;
+}
+
+.anomaly-critical {
+  border-color: #ff4d4d;
+  box-shadow: 0 0 8px rgba(255, 77, 77, 0.3);
+}
+
+.anomaly-high {
+  border-color: #ff944d;
+}
+
+.anomaly-medium {
+  border-color: #ffd27a;
+}
+
+.anomaly-low {
+  border-color: #4cffd2;
+}
+
+.anomaly-header-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 0.25rem;
+}
+
+.anomaly-type {
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 0.7rem;
+  color: #e6f1ff;
+}
+
+.anomaly-time {
+  font-size: 0.7rem;
+  color: #8593b1;
+}
+
+.anomaly-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.anomaly-description {
+  color: #d2e0ff;
+}
+
+.anomaly-aircraft {
+  color: #7cb5ff;
+  font-size: 0.72rem;
+}
+
