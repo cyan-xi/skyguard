@@ -1,12 +1,32 @@
+export type PatternLeg = "upwind" | "crosswind" | "downwind" | "base" | "final" | "none";
+export type FlightMode = "pattern" | "transit" | "holding";
+
 export interface Plane {
     id: string;
     callsign: string;
     intention: string;
+
+    // Position
     x: number;
     y: number;
     altitude: number;
     heading: number;
     groundspeed: number;
+
+    // Physics Targets
+    targetHeading?: number;
+    targetAltitude?: number;
+    targetGroundspeed?: number;
+
+    // Physics Constraints
+    turnRate?: number; // deg/sec
+    climbRate?: number; // ft/min
+    acceleration?: number; // kt/sec
+
+    // AI Logic
+    flightMode: FlightMode;
+    patternLeg: PatternLeg;
+
     lastUpdated: string;
 }
 

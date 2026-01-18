@@ -266,8 +266,8 @@ export function MapOverlay({ planes, anomalies, onPlaneClick }: MapOverlayProps)
             );
         };
 
-        renderPatternSide(1, "RIGHT TRAFFIC");
-        renderPatternSide(-1, "LEFT TRAFFIC");
+        renderPatternSide(1, "LEFT TRAFFIC");
+        renderPatternSide(-1, "RIGHT TRAFFIC");
 
 
         // Planes
