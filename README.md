@@ -58,7 +58,7 @@ python agent.py dev
 *   **[Cartesia TTS](https://cartesia.ai/)**: State-of-the-art Text-to-Speech for ultra-low latency voice delivery.
 
 ### AI Tools
-*   **[Antigravity](https://deepmind.google/technologies/gemini/)**: AI coding assistant from Google DeepMind, used for the end-to-end engineering and design of SkyGuard.
+*   **[Trae IDE](https://www.trae.ai/)**: Adaptive AI IDE used for the end-to-end engineering and design of SkyGuard.
 
 ### Design
 *   **Custom CRT/Radar Overlay**: Native CSS animations and SVG filters for a classic aviation aesthetic.
