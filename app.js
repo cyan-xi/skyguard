@@ -7,6 +7,8 @@ const suggestedTextElement = document.getElementById("suggested-message-text");
 const suggestedMetaElement = document.getElementById("suggested-meta");
 const broadcastButton = document.getElementById("broadcast-btn");
 const rejectButton = document.getElementById("reject-btn");
+const utcTimeElement = document.getElementById("utc-time");
+const utcDateElement = document.getElementById("utc-date");
 
 const state = {
   planes: [],
@@ -50,6 +52,21 @@ function formatTime(date) {
   const m = String(date.getMinutes()).padStart(2, "0");
   const s = String(date.getSeconds()).padStart(2, "0");
   return h + ":" + m + ":" + s;
+}
+
+function updateUtcClock() {
+  if (!utcTimeElement || !utcDateElement) {
+    return;
+  }
+  const now = new Date();
+  const h = String(now.getUTCHours()).padStart(2, "0");
+  const m = String(now.getUTCMinutes()).padStart(2, "0");
+  const s = String(now.getUTCSeconds()).padStart(2, "0");
+  const year = now.getUTCFullYear();
+  const month = String(now.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(now.getUTCDate()).padStart(2, "0");
+  utcTimeElement.textContent = h + ":" + m + ":" + s + " UTC";
+  utcDateElement.textContent = year + "-" + month + "-" + day;
 }
 
 function createInitialPlanes() {
@@ -667,6 +684,8 @@ function init() {
   } else {
     airportImage.addEventListener("load", render);
   }
+  updateUtcClock();
+  setInterval(updateUtcClock, 1000);
   setInterval(updatePlanePositions, 2000);
 }
 
