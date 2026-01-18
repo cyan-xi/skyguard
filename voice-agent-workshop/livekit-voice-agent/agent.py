@@ -16,6 +16,8 @@ from dotenv import load_dotenv
 
 load_dotenv(".env.local")
 
+# follow instructions here:
+# https://docs.livekit.io/agents/start/voice-ai-quickstart/
 
 class Assistant(Agent):
     def __init__(self) -> None:
@@ -30,7 +32,7 @@ class Assistant(Agent):
         )
 
         self.instruction_buffer = []
-        self.webhook_url = "https://example.com/webhook/atc-logs"  # PLACEHOLDER
+        self.webhook_url = "http://localhost:4000/webhook/atc-logs" 
 
     async def _send_to_webhook(self, data: dict):
         """Helper to send data to the webhook asynchronously without blocking."""
@@ -81,13 +83,38 @@ class Assistant(Agent):
         logger.info(f"Retrieving last instruction: {last_entry}")
         return last_entry["message"]
 
+    @function_tool
+    async def report_safety_alert(self, callsign: str, issue: str, severity: str):
+        """
+        Report a safety alert or anomaly derived from pilot communication.
+        Args:
+           callsign: The aircraft involved.
+           issue: Description of the issue (e.g. "Wrong runway readback", "Distress call").
+           severity: "high" or "critical".
+        """
+        logger.warning(f"Reporting safety alert: {issue}")
+        entry = {
+            "type": "AGENT_ALERT",
+            "severity": severity,
+            "description": issue,
+            "aircraftIds": [callsign]
+        }
+        try:
+             async with aiohttp.ClientSession() as session:
+                 async with session.post("http://localhost:4000/webhook/anomalies", json=entry) as response:
+                     if response.status != 200:
+                         logger.error(f"Alert webhook failed: {response.status}")
+        except Exception as e:
+             logger.error(f"Failed to send alert: {e}")
+        return "Safety alert reported to console."
+
 server = AgentServer()
 
 @server.rtc_session()
 async def my_agent(ctx: agents.JobContext):
     session = AgentSession(
         stt="assemblyai/universal-streaming:en",
-        llm="openai/gpt-4.1-mini",
+        llm="openai/gpt-4.1-mini", 
         tts="cartesia/sonic-3:9626c31c-bec5-4cca-baa8-f8ba9e84c8bc",
         vad=silero.VAD.load(),
         turn_detection=MultilingualModel(),
@@ -114,7 +141,7 @@ async def my_agent(ctx: agents.JobContext):
     )
 
     await session.generate_reply(
-        instructions="State that the LiveKit Voice Agent is online."
+        instructions="State that the ATC Agent is online."
     )
 
 

@@ -35,6 +35,59 @@ function createServer() {
       return;
     }
 
+    if (parsed.pathname === "/webhook/atc-logs" && req.method === "POST") {
+      let body = "";
+      req.on("data", chunk => {
+        body += chunk.toString();
+      });
+      req.on("end", () => {
+        try {
+          const data = JSON.parse(body);
+          console.log("Received ATC Log:", data);
+
+          // Inject into the active simulation(s) transcript if possible
+          const firstSim = simulations.values().next().value;
+          if (firstSim) {
+            firstSim.addExternalTranscript(data.callsign, data.message);
+          }
+
+          res.writeHead(200, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ status: "logged" }));
+        } catch (e) {
+          console.error("Invalid JSON in webhook", e);
+          res.writeHead(400, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ error: "invalid json" }));
+        }
+      });
+      return;
+    }
+
+    if (parsed.pathname === "/webhook/anomalies" && req.method === "POST") {
+      let body = "";
+      req.on("data", chunk => {
+        body += chunk.toString();
+      });
+      req.on("end", () => {
+        try {
+          const data = JSON.parse(body);
+          console.log("Received External Anomaly:", data);
+
+          const firstSim = simulations.values().next().value;
+          if (firstSim) {
+            firstSim.addExternalAnomaly(data);
+          }
+
+          res.writeHead(200, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ status: "logged" }));
+        } catch (e) {
+          console.error("Invalid JSON in webhook", e);
+          res.writeHead(400, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ error: "invalid json" }));
+        }
+      });
+      return;
+    }
+
     res.writeHead(404, { "Content-Type": "application/json" });
     res.end(JSON.stringify({ error: "not found" }));
   });
@@ -67,15 +120,68 @@ function createServer() {
     });
     simulations.set(sim.id, sim);
 
-    const interval = setInterval(() => {
+    const interval = setInterval(async () => {
       try {
         const tick = sim.step();
+
+        // --- Integration with MCP for Safety Checks ---
+        // We only check for one aircraft per tick to avoid spamming the MCP
+        // or check all periodically. Let's try checking the first active aircraft.
+        if (sim.aircraft.length > 0) {
+          const ac = sim.aircraft[Math.floor(Math.random() * sim.aircraft.length)];
+          const traffic = sim.aircraft; // Pass all
+
+          // Prepare payload for MCP
+          const payload = {
+            jsonrpc: "2.0",
+            method: "tools/call",
+            params: {
+              name: "checkSeparation",
+              arguments: {
+                aircraft: {
+                  callsign: ac.callsign,
+                  position: { lat: ac.lat, lon: ac.lon, alt: ac.altitudeFt },
+                  speed: ac.groundSpeedKt,
+                  heading: ac.headingDeg
+                },
+                traffic: traffic.map(t => ({
+                  callsign: t.callsign,
+                  position: { lat: t.lat, lon: t.lon, alt: t.altitudeFt },
+                  speed: t.groundSpeedKt,
+                  heading: t.headingDeg
+                }))
+              }
+            },
+            id: 1
+          };
+
+          if (globalThis.fetch) {
+            fetch("http://localhost:3001/mcp", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(payload)
+            }).then(r => r.json()).then(resp => {
+              if (resp.result && resp.result.content && resp.result.content[0].text) {
+                const result = JSON.parse(resp.result.content[0].text);
+                if (result.status === "UNSAFE" || result.status === "WARNING") {
+                  sim.addExternalAnomaly({
+                    type: "MCP_SAFETY_ALERT",
+                    severity: result.status === "UNSAFE" ? "critical" : "high",
+                    description: result.message,
+                    aircraftIds: [ac.callsign]
+                  });
+                }
+              }
+            }).catch(e => { /* ignore connection errors */ });
+          }
+        }
+
         const payload = JSON.stringify(tick);
         const frame = encodeWebSocketFrame(payload);
         socket.write(frame);
       } catch (err) {
         clearInterval(interval);
-        socket.destroy();
+        try { socket.destroy(); } catch (e) { }
       }
     }, 1000);
 
@@ -89,7 +195,7 @@ function createServer() {
       simulations.delete(sim.id);
     });
 
-    socket.on("data", () => {});
+    socket.on("data", () => { });
   });
 
   return server;

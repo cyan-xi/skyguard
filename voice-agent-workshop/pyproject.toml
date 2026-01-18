@@ -13,4 +13,5 @@ dependencies = [
 [tool.uv.workspace]
 members = [
     "livekit-voice-agent",
+    "livekit-voice-agent/livekit-voice-agent",
 ]

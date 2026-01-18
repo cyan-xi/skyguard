@@ -37,6 +37,7 @@ class Simulation {
       typeof options.randomness === "number" && !Number.isNaN(options.randomness)
         ? options.randomness
         : 1;
+    this.chaosLevel = options.chaosLevel || 5.0; // Default to medium chaos
     this.aircraft = [];
     this.anomalies = [];
     this.transcript = [];
@@ -149,6 +150,23 @@ class Simulation {
     });
   }
 
+  addExternalTranscript(callsign, text) {
+    // Treat external logs (from voice agent) as system or pilot messages, or create a new role if needed.
+    // For now, let's map them to 'system' if essentially logging, or infer role.
+    // However, the agent logs "ATC instruction", so it's likely the TOWER speaking (or the agent acting as tower).
+    this._addTranscript("tower", `[Voice Agent] ${text}`, callsign || "ALL");
+  }
+
+  addExternalAnomaly(anomaly) {
+    // anomaly: { type, severity, description, aircraftIds }
+    const id = `ext-${this.simTimeSec}-${crypto.randomUUID().slice(0, 8)}`;
+    this.anomalies.push({
+      id,
+      simTimeSec: this.simTimeSec,
+      ...anomaly
+    });
+  }
+
   _updateAircraftPositions() {
     for (const a of this.aircraft) {
       const speedKt = a._patternSpeedKt || a.groundSpeedKt;
@@ -185,13 +203,21 @@ class Simulation {
         const delta = speedNmPerSec * this.dt;
         let nextTrackPos = (a._trackPosNm || 0) + delta;
         if (direction === "ccw") {
-          nextTrackPos = (a._trackPosNm || 0) - delta;
+          // In CCW flow, we still move 'forward' along the perimeter distance in our logic,
+          // but the POSITION lookup handles the CCW coordinate mapping.
+          // If the previous code was subtracting delta, it might have been reversing the 's' parameter
+          // incorrectly relative to how _rectTrackPosition calculates heading.
+          // Let's stick to positive progression of 's' (distance traveled) and let the track function handle geometry.
+          nextTrackPos = (a._trackPosNm || 0) + delta;
         }
+
         let wrapped = nextTrackPos % perimeterNm;
         if (wrapped < 0) {
           wrapped += perimeterNm;
         }
         a._trackPosNm = wrapped;
+
+        // Calculate position
         const pos = this._rectTrackPosition(
           a._trackPosNm,
           this.patternWidthNm,
@@ -200,6 +226,7 @@ class Simulation {
         );
         a._xNm = pos.xNm;
         a._yNm = pos.yNm;
+
         const jitter = (Math.random() - 0.5) * 0.5 * this.randomness;
         const heading = pos.headingDeg + jitter;
         a.headingDeg = ((heading % 360) + 360) % 360;
@@ -241,6 +268,27 @@ class Simulation {
         a.verticalSpeedFpm = (delta / this.dt) * 60;
       } else {
         a.verticalSpeedFpm = 0;
+      }
+
+      // --- CHAOS LOGIC ---
+      // If chaosLevel is high, occasionally force a dangerous deviation
+      if (this.chaosLevel > 0 && Math.random() < (0.005 * this.chaosLevel)) {
+        const deviationType = Math.random();
+        if (deviationType < 0.33) {
+          // 1. Altitude Deviation (Sudden drop/climb)
+          const badAlt = Math.random() < 0.5 ? 800 : 3500;
+          a.altitudeFt = badAlt; // Snap to bad altitude likely to trigger low/high warnings
+          this.addExternalTranscript(a.callsign, `Simulated altitude deviation to ${badAlt}ft`);
+        } else if (deviationType < 0.66) {
+          // 2. Heading Deviation (Turn off course)
+          const badTurn = (Math.random() < 0.5 ? -90 : 90);
+          a.headingDeg = (a.headingDeg + badTurn + 360) % 360;
+          this.addExternalTranscript(a.callsign, `Simulated heading deviation ${badTurn} deg`);
+        } else {
+          // 3. Stop mid-air (Speed deviation)
+          a.groundSpeedKt = 40; // Stall speed
+          this.addExternalTranscript(a.callsign, `Simulated speed drop to 40kt`);
+        }
       }
     }
   }

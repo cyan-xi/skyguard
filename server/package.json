@@ -4,10 +4,15 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "start": "node index.js"
+    "start": "concurrently \"node index.js\" \"cd ../voice-agent-workshop/livekit-voice-agent && .venv/bin/python agent.py dev\"",
+    "server": "node index.js",
+    "agent": "cd ../voice-agent-workshop/livekit-voice-agent && .venv/bin/python agent.py dev"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "type": "commonjs"
+  "type": "commonjs",
+  "devDependencies": {
+    "concurrently": "^9.2.1"
+  }
 }

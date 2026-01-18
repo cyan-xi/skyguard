@@ -1,0 +1,24 @@
+{
+  "name": "aviation-mcp",
+  "version": "1.0.0",
+  "description": "Aviation Safety Rules MCP",
+  "main": "server.ts",
+  "type": "module",
+  "scripts": {
+    "start": "tsx server.ts",
+    "build": "tsc"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@leanmcp/core": "^0.3.17",
+    "@modelcontextprotocol/sdk": "^1.25.2",
+    "reflect-metadata": "^0.2.2"
+  },
+  "devDependencies": {
+    "@types/node": "^25.0.9",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3"
+  }
+}
